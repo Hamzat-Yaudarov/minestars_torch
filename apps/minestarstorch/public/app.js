@@ -76,11 +76,26 @@ async function bootstrap() {
   setActiveSlide(0);
 
   const auth = await api('/auth');
-  if (!auth.ok) return;
-  state.user = auth.user;
-  state.onboardingSeen = !!auth.user.onboarding_seen;
+  if (!auth.ok) {
+    const u = tg?.initDataUnsafe?.user || {};
+    state.user = { rubies: 0, stars: 0, onboarding_seen: false, photo_url: u.photo_url || null };
+    state.onboardingSeen = false;
+  } else {
+    state.user = auth.user;
+    state.onboardingSeen = !!auth.user.onboarding_seen;
+  }
 
   updateBalancesUI();
+
+  if (!state.user.photo_url) {
+    try {
+      const av = await api('/avatar');
+      if (av.ok && av.url) {
+        state.user.photo_url = av.url;
+        updateBalancesUI();
+      }
+    } catch {}
+  }
 
   if (state.onboardingSeen) {
     showGame();

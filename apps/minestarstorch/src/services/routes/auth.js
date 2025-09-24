@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { checkTelegramAuth } from '../verifyTelegram.js';
 import { upsertUser, getUserByTgId, setOnboardingSeen, accrueRubiesByTgId, claimDailyTask, getLeaderboard } from '../db.js';
+import { bot } from '../bot.js';
 
 const router = Router();
 
@@ -58,6 +59,21 @@ router.post('/leaderboard', async (req, res) => {
   if (!ok) return res.status(401).json({ ok: false });
   const rows = await getLeaderboard(100);
   return res.json({ ok: true, leaders: rows });
+});
+
+router.post('/avatar', async (req, res) => {
+  const initData = req.body?.initData;
+  const { ok, user } = checkTelegramAuth(initData);
+  if (!ok || !user?.id) return res.status(401).json({ ok: false });
+  try {
+    const photos = await bot.telegram.getUserProfilePhotos(user.id, 0, 1);
+    const fileId = photos.photos?.[0]?.[0]?.file_id;
+    if (!fileId) return res.json({ ok: true, url: null });
+    const link = await bot.telegram.getFileLink(fileId);
+    return res.json({ ok: true, url: String(link) });
+  } catch (e) {
+    return res.json({ ok: true, url: null });
+  }
 });
 
 router.post('/onboarding/complete', async (req, res) => {
