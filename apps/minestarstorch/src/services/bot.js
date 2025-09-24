@@ -23,7 +23,9 @@ export async function setupBot(app, useWebhook) {
   }
   if (useWebhook) {
     const path = '/telegram/webhook';
-    app.use(path, bot.webhookCallback(path));
+    // In Express, when mounting at a path, req.url is stripped to '/'.
+    // So do NOT pass the path to webhookCallback here.
+    app.use(path, bot.webhookCallback());
     const url = `${process.env.BASE_URL}${path}`;
     const info = await bot.telegram.getWebhookInfo();
     if (info.url !== url) {
