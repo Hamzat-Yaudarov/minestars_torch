@@ -8,6 +8,7 @@ const state = {
   user: null,
   onboardingSeen: false,
   currentSlide: 0,
+  tickTimer: null,
 };
 
 const els = {
@@ -22,6 +23,12 @@ const els = {
   dots: document.getElementById('dots'),
   tabButtons: Array.from(document.querySelectorAll('.tab-button')),
   panels: Array.from(document.querySelectorAll('.tab-panel')),
+  homeRubies: document.getElementById('homeRubies'),
+  goTasks: document.getElementById('goTasks'),
+  openLeaders: document.getElementById('openLeaders'),
+  leaderboardModal: document.getElementById('leaderboardModal'),
+  closeLeaders: document.getElementById('closeLeaders'),
+  leadersList: document.getElementById('leadersList'),
 };
 
 function setActiveSlide(i) {
@@ -43,11 +50,13 @@ function setupDots() {
 }
 
 function showOnboarding() {
+  document.body.classList.add('showing-onboarding');
   els.onboarding.classList.remove('hidden');
   els.game.classList.add('hidden');
 }
 
 function showGame() {
+  document.body.classList.remove('showing-onboarding');
   els.onboarding.classList.add('hidden');
   els.game.classList.remove('hidden');
 }
@@ -71,15 +80,16 @@ async function bootstrap() {
   state.user = auth.user;
   state.onboardingSeen = !!auth.user.onboarding_seen;
 
-  els.rubies.textContent = auth.user.rubies;
-  els.stars.textContent = auth.user.stars;
-  els.avatar.src = auth.user.photo_url || 'data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\"><rect width=\"100%\" height=\"100%\" fill=\"%23222\"/></svg>';
+  updateBalancesUI();
 
   if (state.onboardingSeen) {
     showGame();
   } else {
     showOnboarding();
   }
+  startTicking();
+  setupTasks();
+  setupLeaders();
 }
 
 els.prev.addEventListener('click', () => {
@@ -94,6 +104,77 @@ els.next.addEventListener('click', async () => {
     showGame();
   }
 });
+
+function updateBalancesUI() {
+  els.rubies.textContent = state.user?.rubies ?? 0;
+  els.stars.textContent = state.user?.stars ?? 0;
+  els.avatar.src = state.user?.photo_url || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="100%" height="100%" fill="%23222"/></svg>';
+  els.homeRubies.textContent = `${state.user?.rubies ?? 0} 💎`;
+}
+
+function startTicking() {
+  if (state.tickTimer) clearInterval(state.tickTimer);
+  state.tickTimer = setInterval(async () => {
+    if (state.user?.torch_lit) {
+      state.user.rubies = (state.user.rubies || 0) + 1;
+      updateBalancesUI();
+    }
+  }, 1000);
+  setInterval(async () => {
+    const resp = await api('/tick');
+    if (resp.ok && resp.user) {
+      state.user = resp.user;
+      updateBalancesUI();
+    }
+  }, 15000);
+}
+
+function setupTasks() {
+  els.goTasks.addEventListener('click', () => {
+    const btn = document.querySelector('[data-tab="tasks"]');
+    btn?.click();
+  });
+  document.querySelectorAll('.task-btn').forEach((b) => {
+    b.addEventListener('click', async () => {
+      const key = b.getAttribute('data-task');
+      if (key === 'share_story') {
+        const url = `https://t.me/share/url?url=${encodeURIComponent('https://t.me/' + (tg?.initDataUnsafe?.start_param || ''))}&text=${encodeURIComponent('Играю в MineStars Torch! Заходи 👉 @' + (tg?.initDataUnsafe?.query_id || ''))}`;
+        if (tg?.openTelegramLink) tg.openTelegramLink(url);
+      }
+      const resp = await api('/tasks/claim', { taskKey: key });
+      if (resp.ok) {
+        state.user = resp.user;
+        updateBalancesUI();
+        b.setAttribute('disabled', '');
+      }
+    });
+  });
+}
+
+function setupLeaders() {
+  els.openLeaders.addEventListener('click', async () => {
+    const resp = await api('/leaderboard');
+    if (resp.ok) {
+      els.leadersList.innerHTML = '';
+      resp.leaders.forEach((u, idx) => {
+        const row = document.createElement('div');
+        row.className = 'leader-row';
+        const name = u.username ? '@' + u.username : (u.first_name || 'Игрок');
+        row.innerHTML = `
+          <div class="leader-rank">${idx + 1}</div>
+          <img class="leader-avatar" src="${u.photo_url || ''}" alt="" />
+          <div class="leader-name">${name}</div>
+          <div class="leader-rubies">${u.rubies} 💎</div>
+        `;
+        els.leadersList.appendChild(row);
+      });
+      els.leaderboardModal.classList.add('active');
+    }
+  });
+  els.closeLeaders.addEventListener('click', () => {
+    els.leaderboardModal.classList.remove('active');
+  });
+}
 
 els.tabButtons.forEach((btn) => {
   btn.addEventListener('click', () => {

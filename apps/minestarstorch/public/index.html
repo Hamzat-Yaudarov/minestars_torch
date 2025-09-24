@@ -20,7 +20,7 @@
     </header>
 
     <main class="content-area">
-      <section id="onboarding" class="onboarding hidden">
+      <section id="onboarding" class="onboarding hidden fullscreen">
         <div class="slider">
           <div class="slide active">
             <img src="https://i.imgur.com/bNSgBYl.png" class="slide-image" alt="Тёмная пещера" />
@@ -36,19 +36,73 @@
           </div>
         </div>
         <div class="slider-controls">
-          <button id="prevSlide" class="slider-button">Назад</button>
+          <button id="prevSlide" class="slider-button">��азад</button>
           <div class="dots" id="dots"></div>
-          <button id="nextSlide" class="slider-button">Далее</button>
+          <button id="nextSlide" class="slider-button">Начать</button>
         </div>
       </section>
 
       <section id="game" class="game hidden">
-        <div id="tab-home" class="tab-panel active">Главная</div>
-        <div id="tab-tasks" class="tab-panel">Задания</div>
+        <div id="tab-home" class="tab-panel active">
+          <div class="home-wrap">
+            <div class="home-rubies" id="homeRubies">0 💎</div>
+            <img src="https://i.imgur.com/bNSgBYl.png" class="torch-image" alt="Факел" />
+            <div class="torch-status">
+              <div class="task-title">ВАШ ФАКЕЛ ГОРИТ</div>
+              <div class="task-reward">Выполняйте задания, зажигайте факела и добывайте рубины</div>
+            </div>
+            <div class="home-actions">
+              <button id="goTasks" class="primary-btn">Задания</button>
+              <button id="openLeaders" class="secondary-btn">Лидеры</button>
+            </div>
+          </div>
+        </div>
+        <div id="tab-tasks" class="tab-panel">
+          <div class="tasks-list">
+            <div class="task-item">
+              <div class="task-info">
+                <div class="task-title">Забрать бонус</div>
+                <div class="task-reward">Ежедневно • +3000 💎</div>
+              </div>
+              <button class="task-btn" data-task="daily_bonus">Забрать</button>
+            </div>
+            <div class="task-item">
+              <div class="task-info">
+                <div class="task-title">Поделиться историей</div>
+                <div class="task-reward">Ежедневно • +15000 💎</div>
+              </div>
+              <button class="task-btn" data-task="share_story">Поделиться</button>
+            </div>
+            <div class="task-item">
+              <div class="task-info">
+                <div class="task-title">Подписаться на канал</div>
+                <div class="task-reward">Квест • +8000 💎</div>
+              </div>
+              <button class="task-btn" disabled>Выполнить</button>
+            </div>
+            <div class="task-item">
+              <div class="task-info">
+                <div class="task-title">Пригласить 10 / 50 / 100 / 1000 друзей</div>
+                <div class="task-reward">Квест • +45000 / +100000 / +200000 / +1000000 💎</div>
+              </div>
+              <button class="task-btn" disabled>Скоро</button>
+            </div>
+          </div>
+        </div>
         <div id="tab-mine" class="tab-panel">Шахта</div>
         <div id="tab-shop" class="tab-panel">Магазин</div>
         <div id="tab-history" class="tab-panel">История</div>
       </section>
+
+      <div id="leaderboardModal" class="modal">
+        <div class="modal-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div style="font-weight:800;">Лидеры</div>
+            <button id="closeLeaders" class="secondary-btn">Закрыть</button>
+          </div>
+          <div id="leadersList"></div>
+        </div>
+      </div>
     </main>
 
     <nav class="bottom-tabs">
