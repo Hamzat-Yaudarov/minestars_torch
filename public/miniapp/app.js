@@ -7,6 +7,8 @@
     rubies: 0,
     stars: 0,
     torchOn: true,
+    torchExpiresAt: null,
+    eternalFlame: false,
     onboardingSeen: false,
     sliderIndex: 0,
     tickTimer: null,
@@ -34,6 +36,7 @@
     leadersModal: document.getElementById('leadersModal'),
     leadersList: document.getElementById('leadersList'),
     closeLeaders: document.getElementById('closeLeaders'),
+    torchTimer: document.getElementById('torchTimer'),
 
     // inventory
     btnInventory: document.getElementById('btnInventory'),
@@ -55,6 +58,15 @@
     hitsLabel: document.getElementById('hitsLabel'),
     mineResult: document.getElementById('mineResult'),
     mineLeadersList: document.getElementById('mineLeadersList'),
+
+    // shop
+    exRubies: document.getElementById('exRubies'),
+    btnExR2S: document.getElementById('btnExR2S'),
+    exStars: document.getElementById('exStars'),
+    btnExS2R: document.getElementById('btnExS2R'),
+    buyStarsBtns: Array.from(document.querySelectorAll('.btn-buy-stars')),
+    btnBuyRefBoost: document.getElementById('btnBuyRefBoost'),
+    btnBuyEternal: document.getElementById('btnBuyEternal'),
   };
 
   // Sounds from /muzik
@@ -86,6 +98,20 @@
     els.rubiesTop.textContent = String(state.rubies);
   }
 
+  function updateTorchTimer(){
+    if (!els.torchTimer) return;
+    if (state.eternalFlame) { els.torchTimer.textContent = 'Факел вечный'; return; }
+    if (!state.torchOn) { els.torchTimer.textContent = 'Факел погас'; return; }
+    if (!state.torchExpiresAt) { els.torchTimer.textContent = ''; return; }
+    const ms = new Date(state.torchExpiresAt).getTime() - Date.now();
+    if (ms <= 0) { els.torchTimer.textContent = 'Факел погас'; state.torchOn = false; return; }
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600).toString().padStart(2, '0');
+    const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
+    const sec = Math.floor(s % 60).toString().padStart(2, '0');
+    els.torchTimer.textContent = `До угасания: ${h}:${m}:${sec}`;
+  }
+
   function showOnboarding(show){ els.onboarding.classList.toggle('active', show); }
 
   function setSlide(idx){
@@ -113,11 +139,24 @@
     state.rubies = Number(user.rubies || 0);
     state.stars = Number(user.stars || 0);
     state.torchOn = !!user.torch_on;
+    state.torchExpiresAt = user.torch_expires_at || null;
+    state.eternalFlame = !!user.eternal_flame;
     state.onboardingSeen = !!user.onboarding_seen;
     const photo = (u && u.photo_url) ? u.photo_url : (user.photo_url || '');
     els.avatar.src = photo || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22><rect width=%2240%22 height=%2240%22 fill=%22%23222%22/></svg>';
     updateBalancesUI();
+    updateTorchTimer();
     showOnboarding(!state.onboardingSeen);
+  }
+
+  async function refreshTorch(){
+    if (!state.user) return;
+    try {
+      const r = await fetchJSON(`/api/torch/state?user_id=${state.user.tg_id}`);
+      state.torchOn = !!r.torch_on; state.torchExpiresAt = r.torch_expires_at || null; state.eternalFlame = !!r.eternal_flame;
+      state.rubies = Number(r.rubies||state.rubies); state.stars = Number(r.stars||state.stars);
+      updateBalancesUI(); updateTorchTimer();
+    } catch {}
   }
 
   async function setOnboardingDone(){
@@ -126,14 +165,17 @@
   }
 
   async function tick(){
-    if (!state.user || !state.torchOn) return;
+    if (!state.user || !state.torchOn) { updateTorchTimer(); return; }
     try {
       const data = await fetchJSON('/api/tick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
       state.rubies = Number(data.rubies || state.rubies + 1);
       state.stars = Number(data.stars || state.stars);
       state.torchOn = !!data.torch_on;
+      state.torchExpiresAt = data.torch_expires_at || state.torchExpiresAt;
+      state.eternalFlame = !!data.eternal_flame;
       updateBalancesUI();
     } catch {}
+    updateTorchTimer();
   }
 
   async function loadLeaders(){
@@ -164,7 +206,7 @@
   function renderBlock(block, left){
     els.blockView.className = 'block-view';
     if (!block) { els.blockLabel.textContent = 'Выберите кирку'; els.hitsLabel.textContent=''; return; }
-    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Зо��отой блок'], diamond:['block-diamond','Алмазный блок'] };
+    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Золотой блок'], diamond:['block-diamond','Алмазный блок'] };
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
@@ -188,7 +230,7 @@
   async function claimDaily(){
     if (!state.user) return; play('click');
     const r = await fetchJSON('/api/mine/daily-claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
-    if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); showToast(`Получено: +${r.granted} ��аменных кирок`); }
+    if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); showToast(`Получено: +${r.granted} каменных кирок`); }
   }
 
   async function buyDiamond(){
@@ -215,7 +257,7 @@
     el.className = 'reward reward-fly';
     const nftImg = nftToImg(reward && reward.nft);
     if (nftImg) {
-      el.innerHTML = `<img class=\"reward-nft-image\" src=\"${nftImg}\" alt=\"nft\"/>`;
+      el.innerHTML = `<img class="reward-nft-image" src="${nftImg}" alt="nft"/>`;
     } else {
       el.innerHTML = `<div class=\"reward-badge\">+⭐ ${reward ? reward.starsEarned : ''}</div>`;
     }
@@ -236,7 +278,6 @@
     els.diamondCount.textContent = String(state.diamond);
     updateBalancesUI();
 
-    // update block state for current pickaxe
     state.blocks[state.selectedPickaxe] = { type: r.block, left: r.left };
     renderBlock(r.block, r.left);
 
@@ -271,6 +312,62 @@
     }).join('');
   }
 
+  // Shop actions
+  async function exchange(type, amount){
+    if (!state.user) return;
+    const amt = Math.max(0, Math.floor(Number(amount)||0));
+    if (!amt) { showToast('Введите сумму'); return; }
+    try {
+      const r = await fetchJSON('/api/shop/exchange', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, type, amount: amt }) });
+      state.rubies = Number(r.rubies || state.rubies);
+      state.stars = Number(r.stars || state.stars);
+      updateBalancesUI();
+      play('purchase');
+      showToast('Обмен выполнен');
+    } catch (e) {
+      const msg = e && e.error ? e.error : 'Ошибка обмена';
+      if (msg === 'not_enough_rubies') showToast('Недостаточно 💎');
+      else if (msg === 'not_enough_stars') showToast('Недостаточно ⭐');
+      else showToast('Не удалось обменять');
+    }
+  }
+
+  async function buyStars(amount){
+    if (!state.user || !tg) return;
+    try {
+      const r = await fetchJSON('/api/payments/create-stars-invoice', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, amount }) });
+      if (!r.link) { showToast('Не удалось создать оплату'); return; }
+      tg.openInvoice(r.link, async (status) => {
+        if (status === 'paid') {
+          await new Promise(res => setTimeout(res, 800));
+          await refreshTorch();
+          showToast(`Оплачено ⭐ ${amount}`);
+        } else if (status === 'cancelled') { showToast('Оплата отменена'); }
+      });
+    } catch { showToast('Ошибка оплаты'); }
+  }
+
+  async function buyRefBoost(){
+    if (!state.user) return; play('click');
+    const prev = els.btnBuyRefBoost.textContent; els.btnBuyRefBoost.disabled = true; els.btnBuyRefBoost.textContent = 'Покупка...';
+    try {
+      const r = await fetchJSON('/api/shop/buy/referral-boost', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
+      state.stars = Number(r.stars||state.stars); updateBalancesUI(); play('purchase'); showToast('Куплено: +20% к бонусу реферала');
+    } catch (e) { const msg = e && e.error ? e.error : 'err'; if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else showToast('Ошибка покупки'); }
+    finally { els.btnBuyRefBoost.disabled = false; els.btnBuyRefBoost.textContent = prev; }
+  }
+
+  async function buyEternal(){
+    if (!state.user) return; play('click');
+    const prev = els.btnBuyEternal.textContent; els.btnBuyEternal.disabled = true; els.btnBuyEternal.textContent = 'Покупка...';
+    try {
+      const r = await fetchJSON('/api/shop/buy/eternal-flame', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
+      if (r && r.error) throw r;
+      state.stars = Number(r.stars||state.stars); state.torchOn = !!r.torch_on; state.eternalFlame = !!r.eternal_flame || true; updateBalancesUI(); updateTorchTimer(); play('purchase'); showToast('Куплено: Вечное пламя');
+    } catch (e) { const msg = e && e.error ? e.error : 'err'; if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else if (msg==='already_owned') showToast('Уже куплено'); else showToast('Ошибка покупки'); }
+    finally { els.btnBuyEternal.disabled = false; els.btnBuyEternal.textContent = prev; }
+  }
+
   function showToast(text){
     const el = document.createElement('div'); el.className = 'toast'; el.textContent = text; document.body.appendChild(el); setTimeout(()=>{ el.remove(); }, 2600);
   }
@@ -292,6 +389,13 @@
     els.btnDaily.addEventListener('click', claimDaily);
     els.btnBuyDiamond.addEventListener('click', buyDiamond);
     els.blockView.addEventListener('click', hitBlock);
+
+    // shop
+    if (els.btnExR2S) els.btnExR2S.addEventListener('click', () => exchange('rubies_to_stars', els.exRubies.value));
+    if (els.btnExS2R) els.btnExS2R.addEventListener('click', () => exchange('stars_to_rubies', els.exStars.value));
+    els.buyStarsBtns.forEach(b => b.addEventListener('click', () => { const amt = Number(b.dataset.stars||0); if (amt) buyStars(amt); }));
+    if (els.btnBuyRefBoost) els.btnBuyRefBoost.addEventListener('click', buyRefBoost);
+    if (els.btnBuyEternal) els.btnBuyEternal.addEventListener('click', buyEternal);
 
     document.body.addEventListener('click', unlockAudioOnce, { once: true });
   }
