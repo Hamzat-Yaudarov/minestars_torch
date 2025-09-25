@@ -1,9 +1,21 @@
 const { Pool } = require('pg');
 
-const connectionString = process.env.NEON_DATABASE_URL;
+let connectionString = process.env.NEON_DATABASE_URL;
 if (!connectionString) {
   console.warn('NEON_DATABASE_URL is not set');
 }
+
+function sanitizeConn(cs){
+  if (!cs) return cs;
+  try {
+    const u = new URL(cs);
+    u.searchParams.delete('channel_binding');
+    return u.toString();
+  } catch {
+    return cs.replace(/([?&])channel_binding=[^&]*/g, '$1').replace(/[?&]$/, '');
+  }
+}
+connectionString = sanitizeConn(connectionString);
 
 const pool = new Pool({ connectionString });
 
