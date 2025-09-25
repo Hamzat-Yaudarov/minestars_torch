@@ -26,6 +26,7 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, Bl
 .torch-title { font-size: 16px; font-weight: 800; text-align: center; }
 .torch-subtitle { font-size: 13px; opacity: 0.9; text-align: center; max-width: 320px; }
 .home-actions { display: flex; gap: 12px; }
+.torch-timer { margin-top: 8px; font-size: 13px; opacity: 0.95; text-align: center; }
 
 .btn { border: none; padding: 10px 16px; border-radius: 10px; font-weight: 700; }
 .btn.primary { background: #3b82f6; color: #fff; }
@@ -103,6 +104,14 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, Bl
 .mine-actions { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .mine-result { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px; }
 .hidden { display: none; }
+
+.shop-wrapper { display: flex; flex-direction: column; gap: 12px; }
+.shop-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; }
+.shop-title { font-weight: 800; margin-bottom: 8px; }
+.exchange-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 8px; }
+.input { padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); background: #0b0c10; color: #fff; }
+.shop-items { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.shop-note { font-size: 12px; opacity: 0.8; margin-top: 6px; }
 
 @media (max-width: 480px) { .slide-image { max-width: 92%; max-height: 56%; } .pickaxes { grid-template-columns: 1fr; } .inventory-grid { grid-template-columns: repeat(2, 1fr); } }
 

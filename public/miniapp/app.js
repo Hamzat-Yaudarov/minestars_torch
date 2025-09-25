@@ -7,13 +7,17 @@
     rubies: 0,
     stars: 0,
     torchOn: true,
+    torchExpiresAt: null,
+    eternalTorch: false,
     onboardingSeen: false,
     sliderIndex: 0,
     tickTimer: null,
+    torchTimerInt: null,
     stone: 0,
     diamond: 0,
     mineTab: 'mine',
     selectedPickaxe: null,
+    hitLock: false,
     blocks: { stone: { type: null, left: 0 }, diamond: { type: null, left: 0 } },
   };
 
@@ -41,6 +45,18 @@
     inventoryList: document.getElementById('inventoryList'),
     closeInventory: document.getElementById('closeInventory'),
 
+    // home
+    torchTimer: document.getElementById('torchTimer'),
+
+    // shop
+    rubyToStarInput: document.getElementById('rubyToStarInput'),
+    starToRubyInput: document.getElementById('starToRubyInput'),
+    btnRubyToStar: document.getElementById('btnRubyToStar'),
+    btnStarToRuby: document.getElementById('btnStarToRuby'),
+    btnBuyStarsWithTg: document.getElementById('btnBuyStarsWithTg'),
+    btnBuyRefBoost: document.getElementById('btnBuyRefBoost'),
+    btnBuyEternal: document.getElementById('btnBuyEternal'),
+
     // mine
     mineTabBtns: Array.from(document.querySelectorAll('.mine-tab-btn')),
     minePanel: document.getElementById('mine-panel'),
@@ -64,7 +80,11 @@
     reward: new Audio('/muzik/reward.mp3'),
     click: new Audio('/muzik/click.mp3'),
   };
-  Object.values(sounds).forEach(a => { a.preload = 'auto'; a.volume = 0.6; });
+  sounds.purchase.volume = 0.35;
+  sounds.hit.volume = 0.7;
+  sounds.reward.volume = 0.8;
+  sounds.click.volume = 0.5;
+  Object.values(sounds).forEach(a => { a.preload = 'auto'; });
   let audioUnlocked = false;
   function play(name){
     try {
@@ -113,6 +133,8 @@
     state.rubies = Number(user.rubies || 0);
     state.stars = Number(user.stars || 0);
     state.torchOn = !!user.torch_on;
+    state.torchExpiresAt = user.torch_expires_at ? new Date(user.torch_expires_at) : null;
+    state.eternalTorch = !!user.eternal_torch;
     state.onboardingSeen = !!user.onboarding_seen;
     const photo = (u && u.photo_url) ? u.photo_url : (user.photo_url || '');
     els.avatar.src = photo || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22><rect width=%2240%22 height=%2240%22 fill=%22%23222%22/></svg>';
@@ -126,12 +148,13 @@
   }
 
   async function tick(){
-    if (!state.user || !state.torchOn) return;
+    if (!state.user) return;
     try {
       const data = await fetchJSON('/api/tick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
-      state.rubies = Number(data.rubies || state.rubies + 1);
+      state.rubies = Number(data.rubies || state.rubies);
       state.stars = Number(data.stars || state.stars);
       state.torchOn = !!data.torch_on;
+      state.torchExpiresAt = data.torch_expires_at ? new Date(data.torch_expires_at) : state.torchExpiresAt;
       updateBalancesUI();
     } catch {}
   }
@@ -164,12 +187,25 @@
   function renderBlock(block, left){
     els.blockView.className = 'block-view';
     if (!block) { els.blockLabel.textContent = 'Выберите кирку'; els.hitsLabel.textContent=''; return; }
-    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Зо��отой блок'], diamond:['block-diamond','Алмазный блок'] };
+    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Золотой блок'], diamond:['block-diamond','Алмазный блок'] };
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
     els.hitsLabel.textContent = `Осталось ударов: ${left}`;
   }
+
+  function formatLeft(ms){ if (ms <= 0) return '00:00:00'; const s=Math.floor(ms/1000); const h=String(Math.floor(s/3600)).padStart(2,'0'); const m=String(Math.floor((s%3600)/60)).padStart(2,'0'); const ss=String(s%60).padStart(2,'0'); return `${h}:${m}:${ss}`; }
+
+  function updateTorchTimerUI(){
+    if (!els.torchTimer) return;
+    if (state.eternalTorch) { els.torchTimer.textContent = 'Факел вечный'; return; }
+    if (!state.torchOn) { els.torchTimer.textContent = 'Факел погас'; return; }
+    if (!state.torchExpiresAt) { els.torchTimer.textContent = ''; return; }
+    const left = state.torchExpiresAt - Date.now();
+    els.torchTimer.textContent = left > 0 ? `До угасания: ${formatLeft(left)}` : 'Факел погас';
+  }
+
+  function startTorchTimer(){ if (state.torchTimerInt) clearInterval(state.torchTimerInt); state.torchTimerInt = setInterval(updateTorchTimerUI, 1000); updateTorchTimerUI(); }
 
   async function initMineView(){
     if (!state.user) return;
@@ -188,7 +224,7 @@
   async function claimDaily(){
     if (!state.user) return; play('click');
     const r = await fetchJSON('/api/mine/daily-claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
-    if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); showToast(`Получено: +${r.granted} ��аменных кирок`); }
+    if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); showToast(`Получено: +${r.granted} каменных кирок`); }
   }
 
   async function buyDiamond(){
@@ -224,28 +260,38 @@
   }
 
   async function hitBlock(){
-    if (!state.user || !state.selectedPickaxe) return;
+    if (!state.user || !state.selectedPickaxe || state.hitLock) return;
     unlockAudioOnce();
+    state.hitLock = true;
     els.blockView.classList.add('block-hit'); setTimeout(()=>els.blockView.classList.remove('block-hit'), 220);
     play('hit');
-    const r = await fetchJSON('/api/mine/hit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, pickaxe: state.selectedPickaxe }) });
-    state.stone = Number(r.stone_pickaxes||state.stone);
-    state.diamond = Number(r.diamond_pickaxes||state.diamond);
-    state.stars = Number(r.stars||state.stars);
-    els.stoneCount.textContent = String(state.stone);
-    els.diamondCount.textContent = String(state.diamond);
-    updateBalancesUI();
 
-    // update block state for current pickaxe
-    state.blocks[state.selectedPickaxe] = { type: r.block, left: r.left };
-    renderBlock(r.block, r.left);
+    const cur = state.blocks[state.selectedPickaxe];
+    if (cur && cur.left > 0) { cur.left -= 1; renderBlock(cur.type, cur.left); }
 
-    if (r.reward && r.reward.completed) {
-      play('reward');
-      els.blockView.classList.add('block-reward-glow'); setTimeout(()=>els.blockView.classList.remove('block-reward-glow'), 900);
-      spawnReward(r.reward);
-      const msg = r.reward.nft ? `Выпал NFT: ${r.reward.nft} +⭐ ${r.reward.starsEarned}` : `+⭐ ${r.reward.starsEarned}`;
-      showToast(msg);
+    try {
+      const r = await fetchJSON('/api/mine/hit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, pickaxe: state.selectedPickaxe }) });
+      state.stone = Number(r.stone_pickaxes||state.stone);
+      state.diamond = Number(r.diamond_pickaxes||state.diamond);
+      state.stars = Number(r.stars||state.stars);
+      els.stoneCount.textContent = String(state.stone);
+      els.diamondCount.textContent = String(state.diamond);
+      updateBalancesUI();
+
+      state.blocks[state.selectedPickaxe] = { type: r.block, left: r.left };
+      renderBlock(r.block, r.left);
+
+      if (r.reward && r.reward.completed) {
+        play('reward');
+        els.blockView.classList.add('block-reward-glow'); setTimeout(()=>els.blockView.classList.remove('block-reward-glow'), 900);
+        spawnReward(r.reward);
+        const msg = r.reward.nft ? `Выпал NFT: ${r.reward.nft} +⭐ ${r.reward.starsEarned}` : `+⭐ ${r.reward.starsEarned}`;
+        showToast(msg);
+      }
+    } catch (e) {
+      if (state.user) { await initMineView(); }
+    } finally {
+      state.hitLock = false;
     }
   }
 
@@ -293,6 +339,32 @@
     els.btnBuyDiamond.addEventListener('click', buyDiamond);
     els.blockView.addEventListener('click', hitBlock);
 
+    els.btnRubyToStar.addEventListener('click', async () => {
+      if (!state.user) return; play('click');
+      const amt = Math.floor(Number(els.rubyToStarInput.value||0));
+      if (!(amt>0)) return showToast('Введите количество рубинов');
+      try { const r = await fetchJSON('/api/shop/exchange', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, direction:'ruby_to_star', amount: amt }) }); state.rubies = r.rubies; state.stars = r.stars; updateBalancesUI(); showToast('Обмен завершён'); } catch (e) { showToast((e&&e.error)==='not_enough_rubies'?'Недостаточно рубинов':'Не удалось обменять'); }
+    });
+
+    els.btnStarToRuby.addEventListener('click', async () => {
+      if (!state.user) return; play('click');
+      const amt = Math.floor(Number(els.starToRubyInput.value||0));
+      if (!(amt>0)) return showToast('Введите количество звёзд');
+      try { const r = await fetchJSON('/api/shop/exchange', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, direction:'star_to_ruby', amount: amt }) }); state.rubies = r.rubies; state.stars = r.stars; updateBalancesUI(); showToast('Обмен завершён'); } catch (e) { showToast((e&&e.error)==='not_enough_stars'?'Недостаточно звёзд':'Не удалось обменять'); }
+    });
+
+    els.btnBuyRefBoost.addEventListener('click', async () => {
+      if (!state.user) return; play('click');
+      try { const r = await fetchJSON('/api/shop/purchase-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, item: 'referral_boost' }) }); state.stars = r.stars; updateBalancesUI(); showToast('Буст реферала куплен'); } catch (e) { showToast((e&&e.error)==='not_enough_stars'?'Недостаточно ⭐':'Покупка не удалась'); }
+    });
+
+    els.btnBuyEternal.addEventListener('click', async () => {
+      if (!state.user) return; play('click');
+      try { const r = await fetchJSON('/api/shop/purchase-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, item: 'eternal_torch' }) }); state.stars = r.stars; state.torchOn = r.torch_on; state.eternalTorch = r.eternal_torch; updateBalancesUI(); updateTorchTimerUI(); showToast('Вечный факел активирован'); } catch (e) { showToast((e&&e.error)==='not_enough_stars'?'Недостаточно ⭐':'Покупка не удалась'); }
+    });
+
+    els.btnBuyStarsWithTg.addEventListener('click', () => { play('click'); if (tg && tg.showPopup) { tg.showPopup({ title:'Платёж', message:'Нужно настроить платежи у бота (Telegram Stars).', buttons:[{type:'ok'}] }); } else { showToast('Платежи не настроены'); } });
+
     document.body.addEventListener('click', unlockAudioOnce, { once: true });
   }
 
@@ -301,5 +373,5 @@
   // init
   bindEvents();
   setSlide(0);
-  loadUser().then(()=>{ startTick(); });
+  loadUser().then(()=>{ startTick(); startTorchTimer(); });
 })();

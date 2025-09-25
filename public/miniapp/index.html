@@ -37,6 +37,7 @@
               <button id="btnTasks" class="btn primary">Задания</button>
               <button id="btnLeaders" class="btn secondary">Лидеры</button>
             </div>
+            <div id="torchTimer" class="torch-timer"></div>
           </div>
         </section>
         <section id="tab-tasks" class="tab-screen">Пока пусто</section>
@@ -87,14 +88,42 @@
             </div>
           </div>
         </section>
-        <section id="tab-shop" class="tab-screen">Пока пусто</section>
+        <section id="tab-shop" class="tab-screen">
+          <div class="shop-wrapper">
+            <div class="shop-card">
+              <div class="shop-title">Обменник</div>
+              <div class="exchange-row">
+                <input id="rubyToStarInput" class="input" type="number" min="0" placeholder="Сколько рубинов обменять" />
+                <button id="btnRubyToStar" class="btn secondary">⟲ в ⭐</button>
+              </div>
+              <div class="exchange-row">
+                <input id="starToRubyInput" class="input" type="number" min="0" placeholder="Сколько звёзд обменять" />
+                <button id="btnStarToRuby" class="btn secondary">⟲ в 💎</button>
+              </div>
+            </div>
+
+            <div class="shop-card">
+              <div class="shop-title">Покупка звёзд</div>
+              <button id="btnBuyStarsWithTg" class="btn primary">Купить звёзды за Telegram Stars</button>
+              <div class="shop-note">Требуется настройка платежей у бота</div>
+            </div>
+
+            <div class="shop-card">
+              <div class="shop-title">Предметы</div>
+              <div class="shop-items">
+                <button id="btnBuyRefBoost" class="btn secondary">Буст реферала (+20% к +12ч) — 200⭐</button>
+                <button id="btnBuyEternal" class="btn secondary">Вечный факел — 750⭐</button>
+              </div>
+            </div>
+          </div>
+        </section>
         <section id="tab-history" class="tab-screen">Пока пусто</section>
       </main>
 
       <nav class="tabbar">
         <button class="tab-btn active" data-tab="home">Главная</button>
         <button class="tab-btn" data-tab="tasks">Задания</button>
-        <button class="tab-btn" data-tab="mine">��ахта</button>
+        <button class="tab-btn" data-tab="mine">Шахта</button>
         <button class="tab-btn" data-tab="shop">Магазин</button>
         <button class="tab-btn" data-tab="history">История</button>
       </nav>
@@ -103,7 +132,7 @@
         <div class="slider">
           <div class="slide active">
             <img src="https://i.imgur.com/bNSgBYl.png" class="slide-image" alt="screen1" />
-            <div class="slide-text">Вы очнулись в тёмной пещере 🕯️ Ваш единственный свет — это факел.</div>
+            <div class="slide-text">Вы очнулись в тёмной пещере 🕯️ Ваш ��динственный свет — это факел.</div>
           </div>
           <div class="slide">
             <img src="https://i.imgur.com/bNSgBYl.png" class="slide-image" alt="screen2" />

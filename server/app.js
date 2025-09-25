@@ -16,6 +16,8 @@ const {
   mineHit,
   mineLeaders,
   getUserNfts,
+  exchange,
+  purchaseItem,
 } = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -146,6 +148,32 @@ app.get('/api/mine/leaderboard', async (_req, res) => {
   try {
     const rows = await mineLeaders(100);
     res.json(rows);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+// Shop API
+app.post('/api/shop/exchange', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    const direction = String(req.body.direction||'');
+    const amount = Math.floor(Number(req.body.amount||0));
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    if (!['ruby_to_star','star_to_ruby'].includes(direction)) return res.status(400).json({ error: 'invalid_direction' });
+    if (!(amount>0)) return res.status(400).json({ error: 'invalid_amount' });
+    const r = await exchange(tg_id, direction, amount);
+    if (r && r.error) return res.status(400).json(r);
+    res.json(r);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+app.post('/api/shop/purchase-item', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    const item = String(req.body.item||'');
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const r = await purchaseItem(tg_id, item);
+    if (r && r.error) return res.status(400).json(r);
+    res.json(r);
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
 
