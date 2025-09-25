@@ -24,7 +24,7 @@
           <div class="home-wrapper">
             <div class="rubies-counter" id="rubiesTop">0</div>
             <div class="torch" id="torch">
-              <img src="https://imgur.com/e2h9hi6.png" alt="torch" class="torch-image" />
+              <img src="https://imgur.com/bNSgBYl.png" alt="torch" class="torch-image" />
             </div>
             <div class="torch-status">
               <div class="torch-title">ВАШ ФАКЕЛ ГОРИТ</div>
@@ -37,7 +37,53 @@
           </div>
         </section>
         <section id="tab-tasks" class="tab-screen">Пока пусто</section>
-        <section id="tab-mine" class="tab-screen">Пока пусто</section>
+        <section id="tab-mine" class="tab-screen">
+          <div class="mine-wrapper">
+            <div class="mine-tabs">
+              <button class="mine-tab-btn active" data-mtab="mine">Шахта</button>
+              <button class="mine-tab-btn" data-mtab="leaders">Таблица лидеров</button>
+            </div>
+
+            <div id="mine-panel" class="mine-panel">
+              <div class="pickaxes">
+                <div class="pickaxe-card" data-pickaxe="stone">
+                  <img class="pickaxe-image" src="https://imgur.com/SWL7lBN.png" alt="stone pickaxe" />
+                  <div class="pickaxe-info">
+                    <div class="pickaxe-title">Каменная кирка</div>
+                    <div class="pickaxe-sub">Дерево/Камень • Траты 3-5</div>
+                  </div>
+                  <div class="pickaxe-count"><span id="stoneCount">0</span> шт.</div>
+                </div>
+                <div class="pickaxe-card" data-pickaxe="diamond">
+                  <img class="pickaxe-image" src="https://imgur.com/Lb9x39M.png" alt="diamond pickaxe" />
+                  <div class="pickaxe-info">
+                    <div class="pickaxe-title">Алмазная кирка</div>
+                    <div class="pickaxe-sub">Золото/Алмаз • Траты 2-5</div>
+                  </div>
+                  <div class="pickaxe-count"><span id="diamondCount">0</span> шт.</div>
+                </div>
+              </div>
+
+              <div class="mine-block">
+                <div id="blockView" class="block-view">
+                  <div id="blockLabel" class="block-label">Выберите кирку</div>
+                </div>
+              </div>
+
+              <div class="mine-actions">
+                <button id="btnMine" class="btn primary" disabled>Добыть</button>
+                <button id="btnDaily" class="btn secondary">Ежедневно +3 каменных</button>
+                <button id="btnBuyDiamond" class="btn secondary">Купить алмазную за 150⭐</button>
+              </div>
+
+              <div id="mineResult" class="mine-result hidden"></div>
+            </div>
+
+            <div id="mine-leaders" class="mine-leaders hidden">
+              <div id="mineLeadersList" class="leaders-list"></div>
+            </div>
+          </div>
+        </section>
         <section id="tab-shop" class="tab-screen">Пока пусто</section>
         <section id="tab-history" class="tab-screen">Пока пусто</section>
       </main>
@@ -72,7 +118,7 @@
             <span class="dot"></span>
             <span class="dot"></span>
           </div>
-          <button id="nextSlide" class="btn primary">Дальше</button>
+          <button id="nextSlide" class="btn primary">��альше</button>
         </div>
       </div>
 

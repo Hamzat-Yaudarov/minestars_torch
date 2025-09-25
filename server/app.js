@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
-const { Telegraf, Markup } = require('telegraf');
+const { Telegraf } = require('telegraf');
 const bodyParser = require('body-parser');
 const {
   ensureSchema,
@@ -10,6 +10,10 @@ const {
   setOnboardingSeen,
   tickRuby,
   topLeaders,
+  grantDailyPicks,
+  purchaseDiamondPick,
+  mineAction,
+  mineLeaders,
 } = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -80,6 +84,55 @@ app.get('/api/leaderboard', async (_req, res) => {
   }
 });
 
+// Mining API
+app.get('/api/mine/state', async (req, res) => {
+  try {
+    const tg_id = Number(req.query.user_id);
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const u = await getUser(tg_id);
+    if (!u) return res.status(404).json({ error: 'not_found' });
+    res.json({ stone_pickaxes: u.stone_pickaxes, diamond_pickaxes: u.diamond_pickaxes, stars: u.stars, stars_earned_mine: u.stars_earned_mine });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+app.post('/api/mine/daily-claim', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const r = await grantDailyPicks(tg_id);
+    res.json(r);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+app.post('/api/mine/purchase-dpick', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const r = await purchaseDiamondPick(tg_id);
+    if (r && r.error) return res.status(400).json(r);
+    res.json(r);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+app.post('/api/mine/mine', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    const pickaxe = req.body.pickaxe;
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    if (pickaxe !== 'stone' && pickaxe !== 'diamond') return res.status(400).json({ error: 'invalid_pickaxe' });
+    const r = await mineAction(tg_id, pickaxe);
+    if (r && r.error) return res.status(400).json(r);
+    res.json(r);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+app.get('/api/mine/leaderboard', async (_req, res) => {
+  try {
+    const rows = await mineLeaders(100);
+    res.json(rows);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
 // Telegram bot webhook
 let bot = null;
 if (BOT_TOKEN) {
@@ -101,10 +154,7 @@ if (BOT_TOKEN) {
         reply_markup: {
           inline_keyboard: [
             [
-              {
-                text: 'Открыть игру',
-                web_app: { url },
-              },
+              { text: 'Открыть игру', web_app: { url } },
             ],
           ],
         },
