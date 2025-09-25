@@ -92,6 +92,16 @@ async function ensureTorchState(tg_id) {
     let rubies = Number(u.rubies) || 0;
     let extinguishes = Number(u.torch_extinguishes_week) || 0;
 
+    // initialize 24h torch if missing
+    if (!u.torch_expires_at) {
+      const init = await client.query(
+        "update users set torch_on = true, torch_expires_at = now() + interval '24 hours', torch_week_start = coalesce(torch_week_start, $2), updated_at = now() where tg_id = $1 returning torch_expires_at",
+        [tg_id, weekStartStr]
+      );
+      await client.query('commit');
+      return { torch_on: true, torch_expires_at: init.rows[0].torch_expires_at, eternal_flame: !!u.eternal_flame };
+    }
+
     // reset weekly counter if week changed
     const storedWeek = u.torch_week_start ? new Date(u.torch_week_start) : null;
     if (!storedWeek || storedWeek.toISOString().slice(0,10) !== weekStartStr) {
@@ -124,7 +134,7 @@ async function ensureTorchState(tg_id) {
         'update users set rubies = $2, torch_on = $3, torch_week_start = $4, torch_extinguishes_week = $5, updated_at = now() where tg_id = $1',
         [tg_id, rubies, torch_on, weekStartStr, extinguishes]
       );
-    } else if (!storedWeek) {
+    } else if (!u.torch_week_start) {
       await client.query('update users set torch_week_start = $2 where tg_id = $1', [tg_id, weekStartStr]);
     }
 

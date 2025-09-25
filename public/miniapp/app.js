@@ -104,7 +104,7 @@
     if (!state.torchOn) { els.torchTimer.textContent = 'Факел погас'; return; }
     if (!state.torchExpiresAt) { els.torchTimer.textContent = ''; return; }
     const ms = new Date(state.torchExpiresAt).getTime() - Date.now();
-    if (ms <= 0) { els.torchTimer.textContent = 'Факел погас'; state.torchOn = false; return; }
+    if (ms <= 0) { els.torchTimer.textContent = 'Факел п��гас'; state.torchOn = false; return; }
     const s = Math.floor(ms / 1000);
     const h = Math.floor(s / 3600).toString().padStart(2, '0');
     const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
@@ -131,22 +131,26 @@
   function getQuery(params){ return new URLSearchParams(params).toString(); }
 
   async function loadUser(){
-    const u = tg && tg.initDataUnsafe ? tg.initDataUnsafe.user : null;
-    if (!u) return;
-    const query = getQuery({ user_id: u.id, username: u.username||'', first_name: u.first_name||'', last_name: u.last_name||'', photo_url: u.photo_url||'' });
-    const user = await fetchJSON(`/api/user?${query}`);
-    state.user = user;
-    state.rubies = Number(user.rubies || 0);
-    state.stars = Number(user.stars || 0);
-    state.torchOn = !!user.torch_on;
-    state.torchExpiresAt = user.torch_expires_at || null;
-    state.eternalFlame = !!user.eternal_flame;
-    state.onboardingSeen = !!user.onboarding_seen;
-    const photo = (u && u.photo_url) ? u.photo_url : (user.photo_url || '');
-    els.avatar.src = photo || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22><rect width=%2240%22 height=%2240%22 fill=%22%23222%22/></svg>';
-    updateBalancesUI();
-    updateTorchTimer();
-    showOnboarding(!state.onboardingSeen);
+    try {
+      const u = tg && tg.initDataUnsafe ? tg.initDataUnsafe.user : null;
+      if (!u) { showOnboarding(true); return; }
+      const query = getQuery({ user_id: u.id, username: u.username||'', first_name: u.first_name||'', last_name: u.last_name||'', photo_url: u.photo_url||'' });
+      const user = await fetchJSON(`/api/user?${query}`);
+      state.user = user;
+      state.rubies = Number(user.rubies || 0);
+      state.stars = Number(user.stars || 0);
+      state.torchOn = !!user.torch_on;
+      state.torchExpiresAt = user.torch_expires_at || null;
+      state.eternalFlame = !!user.eternal_flame;
+      state.onboardingSeen = !!user.onboarding_seen;
+      const photo = (u && u.photo_url) ? u.photo_url : (user.photo_url || '');
+      els.avatar.src = photo || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22><rect width=%2240%22 height=%2240%22 fill=%22%23222%22/></svg>';
+      updateBalancesUI();
+      updateTorchTimer();
+      showOnboarding(!state.onboardingSeen);
+    } catch (e) {
+      showOnboarding(true);
+    }
   }
 
   async function refreshTorch(){
@@ -155,6 +159,19 @@
       const r = await fetchJSON(`/api/torch/state?user_id=${state.user.tg_id}`);
       state.torchOn = !!r.torch_on; state.torchExpiresAt = r.torch_expires_at || null; state.eternalFlame = !!r.eternal_flame;
       state.rubies = Number(r.rubies||state.rubies); state.stars = Number(r.stars||state.stars);
+      updateBalancesUI(); updateTorchTimer();
+    } catch {}
+  }
+
+  async function refreshUser(){
+    if (!state.user) return;
+    try {
+      const u = tg && tg.initDataUnsafe ? tg.initDataUnsafe.user : null;
+      const query = getQuery({ user_id: state.user.tg_id, username: (u && u.username) || '', first_name: (u && u.first_name) || '', last_name: (u && u.last_name) || '', photo_url: (u && u.photo_url) || '' });
+      const user = await fetchJSON(`/api/user?${query}`);
+      state.rubies = Number(user.rubies||state.rubies);
+      state.stars = Number(user.stars||state.stars);
+      state.torchOn = !!user.torch_on; state.torchExpiresAt = user.torch_expires_at || null; state.eternalFlame = !!user.eternal_flame;
       updateBalancesUI(); updateTorchTimer();
     } catch {}
   }
@@ -340,7 +357,7 @@
       tg.openInvoice(r.link, async (status) => {
         if (status === 'paid') {
           await new Promise(res => setTimeout(res, 800));
-          await refreshTorch();
+          await refreshUser();
           showToast(`Оплачено ⭐ ${amount}`);
         } else if (status === 'cancelled') { showToast('Оплата отменена'); }
       });
@@ -363,7 +380,7 @@
     try {
       const r = await fetchJSON('/api/shop/buy/eternal-flame', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
       if (r && r.error) throw r;
-      state.stars = Number(r.stars||state.stars); state.torchOn = !!r.torch_on; state.eternalFlame = !!r.eternal_flame || true; updateBalancesUI(); updateTorchTimer(); play('purchase'); showToast('Куплено: Вечное пламя');
+      state.stars = Number(r.stars||state.stars); state.torchOn = !!r.torch_on; state.eternalFlame = !!r.eternal_flame || true; updateBalancesUI(); updateTorchTimer(); play('purchase'); showToast('Куплено: Вечно�� пламя');
     } catch (e) { const msg = e && e.error ? e.error : 'err'; if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else if (msg==='already_owned') showToast('Уже куплено'); else showToast('Ошибка покупки'); }
     finally { els.btnBuyEternal.disabled = false; els.btnBuyEternal.textContent = prev; }
   }
