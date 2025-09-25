@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>MineStars Torch</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app" class="app-root">
+      <header class="topbar">
+        <div class="profile">
+          <img id="avatar" class="profile-avatar" alt="avatar" />
+          <div class="balances">
+            <div class="balance-row"><span class="balance-icon">💎</span><span id="rubies">0</span></div>
+            <div class="balance-row"><span class="balance-icon">⭐️</span><span id="stars">0</span></div>
+          </div>
+        </div>
+      </header>
+
+      <main id="content" class="content-area">
+        <section id="tab-home" class="tab-screen active">
+          <div class="home-wrapper">
+            <div class="rubies-counter" id="rubiesTop">0</div>
+            <div class="torch" id="torch">
+              <img src="https://imgur.com/bNSgBYl.png" alt="torch" class="torch-image" />
+            </div>
+            <div class="torch-status">
+              <div class="torch-title">ВАШ ФАКЕЛ ГОРИТ</div>
+              <div class="torch-subtitle">Выполняйте задания, зажигайте факела и добывайте рубины</div>
+            </div>
+            <div class="home-actions">
+              <button id="btnTasks" class="btn primary">Задания</button>
+              <button id="btnLeaders" class="btn secondary">Лидеры</button>
+            </div>
+          </div>
+        </section>
+        <section id="tab-tasks" class="tab-screen">Пока пусто</section>
+        <section id="tab-mine" class="tab-screen">Пока пусто</section>
+        <section id="tab-shop" class="tab-screen">Пока пусто</section>
+        <section id="tab-history" class="tab-screen">Пока пусто</section>
+      </main>
+
+      <nav class="tabbar">
+        <button class="tab-btn active" data-tab="home">Главная</button>
+        <button class="tab-btn" data-tab="tasks">Задания</button>
+        <button class="tab-btn" data-tab="mine">Шахта</button>
+        <button class="tab-btn" data-tab="shop">Магазин</button>
+        <button class="tab-btn" data-tab="history">История</button>
+      </nav>
+
+      <div id="onboarding" class="onboarding-overlay">
+        <div class="slider">
+          <div class="slide active">
+            <img src="https://imgur.com/bNSgBYl.png" class="slide-image" alt="screen1" />
+            <div class="slide-text">Вы очнулись в тёмной пещере 🕯️ Ваш единственный свет — это факел.</div>
+          </div>
+          <div class="slide">
+            <img src="https://imgur.com/bNSgBYl.png" class="slide-image" alt="screen2" />
+            <div class="slide-text">Факел горит, пока вы добываете рубины 🔥 Если он погаснет — вы потеряете половину богатства.</div>
+          </div>
+          <div class="slide">
+            <img src="https://imgur.com/bNSgBYl.png" class="slide-image" alt="screen3" />
+            <div class="slide-text">Зажигайте новые факела каждый день: 👥 приглашайте друзей 🎯 выполняйте задания 🛒 или купите вечное пламя</div>
+          </div>
+        </div>
+        <div class="slider-controls">
+          <button id="prevSlide" class="btn ghost">Назад</button>
+          <div class="dots">
+            <span class="dot active"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+          <button id="nextSlide" class="btn primary">Дальше</button>
+        </div>
+      </div>
+
+      <div id="leadersModal" class="modal hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <div class="modal-title">Лидеры</div>
+            <button id="closeLeaders" class="btn ghost">Закрыть</button>
+          </div>
+          <div id="leadersList" class="leaders-list"></div>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
