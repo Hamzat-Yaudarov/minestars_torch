@@ -27,6 +27,12 @@ async function ensureSchema() {
     alter table users add column if not exists stars_earned_mine bigint default 0 not null;
     alter table users add column if not exists referral_count integer default 0 not null;
     alter table users add column if not exists last_daily_login date;
+    alter table users add column if not exists stone_block_type text;
+    alter table users add column if not exists stone_hits_required integer;
+    alter table users add column if not exists stone_hits_done integer;
+    alter table users add column if not exists diamond_block_type text;
+    alter table users add column if not exists diamond_hits_required integer;
+    alter table users add column if not exists diamond_hits_done integer;
     create index if not exists users_rubies_idx on users (rubies desc);
     create index if not exists users_mine_stars_idx on users (stars_earned_mine desc);
   `);
@@ -89,6 +95,18 @@ function weightedPick(weights) {
   return weights[weights.length - 1][0];
 }
 
+function pickBlockFor(pickaxe) {
+  if (pickaxe === 'stone') return Math.random() < 0.5 ? 'wood' : 'stone';
+  return Math.random() < 0.5 ? 'gold' : 'diamond';
+}
+
+function hitsRange(block) {
+  if (block === 'wood' || block === 'stone') return [3, 5];
+  if (block === 'gold') return [2, 3];
+  if (block === 'diamond') return [4, 5];
+  return [3, 5];
+}
+
 function rollStars(block) {
   if (block === 'wood') {
     const bucket = weightedPick([[ '2-8', 55 ], [ '9-15', 40 ], [ '16-20', 5 ]]);
@@ -102,12 +120,8 @@ function rollStars(block) {
     if (bucket === '11-18') return randInt(11, 18);
     return randInt(18, 24);
   }
-  if (block === 'gold') {
-    return randInt(270, 500);
-  }
-  if (block === 'diamond') {
-    return randInt(475, 950);
-  }
+  if (block === 'gold') return randInt(270, 500);
+  if (block === 'diamond') return randInt(475, 950);
   return 0;
 }
 
@@ -121,6 +135,30 @@ function rollNFT(block) {
   return weightedPick(table);
 }
 
+async function ensureMineBlocks(tg_id) {
+  const u = await getUser(tg_id);
+  if (!u) return null;
+  let stone_type = u.stone_block_type;
+  let diamond_type = u.diamond_block_type;
+  let stone_req = u.stone_hits_required;
+  let stone_done = u.stone_hits_done;
+  let diamond_req = u.diamond_hits_required;
+  let diamond_done = u.diamond_hits_done;
+  const updates = [];
+  if (!stone_type || !stone_req) {
+    stone_type = pickBlockFor('stone'); const [a,b] = hitsRange(stone_type); stone_req = randInt(a,b); stone_done = 0;
+    updates.push(`stone_block_type='${stone_type}', stone_hits_required=${stone_req}, stone_hits_done=0`);
+  }
+  if (!diamond_type || !diamond_req) {
+    diamond_type = pickBlockFor('diamond'); const [a,b] = hitsRange(diamond_type); diamond_req = randInt(a,b); diamond_done = 0;
+    updates.push(`diamond_block_type='${diamond_type}', diamond_hits_required=${diamond_req}, diamond_hits_done=0`);
+  }
+  if (updates.length) {
+    await pool.query(`update users set ${updates.join(', ')}, updated_at = now() where tg_id = $1`, [tg_id]);
+  }
+  return { stone_type, stone_req, stone_done, diamond_type, diamond_req, diamond_done };
+}
+
 async function grantDailyPicks(tg_id) {
   const client = await pool.connect();
   try {
@@ -128,23 +166,13 @@ async function grantDailyPicks(tg_id) {
     const { rows } = await client.query('select stone_pickaxes, last_daily_login from users where tg_id = $1 for update', [tg_id]);
     if (!rows.length) throw new Error('not_found');
     const last = rows[0].last_daily_login;
-    const today = new Date();
-    const todayStr = today.toISOString().slice(0,10);
+    const todayStr = new Date().toISOString().slice(0,10);
     const already = last && (new Date(last).toISOString().slice(0,10) === todayStr);
-    if (already) {
-      await client.query('commit');
-      return { granted: 0 };
-    }
-    const upd = await client.query(
-      'update users set stone_pickaxes = stone_pickaxes + 3, last_daily_login = $2, updated_at = now() where tg_id = $1 returning stone_pickaxes',
-      [tg_id, todayStr]
-    );
+    if (already) { await client.query('commit'); return { granted: 0 }; }
+    const upd = await client.query('update users set stone_pickaxes = stone_pickaxes + 3, last_daily_login = $2, updated_at = now() where tg_id = $1 returning stone_pickaxes', [tg_id, todayStr]);
     await client.query('commit');
     return { granted: 3, stone_pickaxes: upd.rows[0].stone_pickaxes };
-  } catch (e) {
-    await client.query('rollback');
-    throw e;
-  } finally { client.release(); }
+  } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
 }
 
 async function purchaseDiamondPick(tg_id) {
@@ -158,10 +186,7 @@ async function purchaseDiamondPick(tg_id) {
     const upd = await client.query('update users set stars = stars - $2, diamond_pickaxes = diamond_pickaxes + 1, updated_at = now() where tg_id = $1 returning stars, diamond_pickaxes', [tg_id, cost]);
     await client.query('commit');
     return upd.rows[0];
-  } catch (e) {
-    await client.query('rollback');
-    throw e;
-  } finally { client.release(); }
+  } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
 }
 
 async function creditReferral(tg_id, count = 1) {
@@ -170,37 +195,83 @@ async function creditReferral(tg_id, count = 1) {
   return res.rows[0];
 }
 
-async function mineAction(tg_id, pickaxe) {
+async function mineState(tg_id) {
+  await ensureMineBlocks(tg_id);
+  const res = await pool.query('select stone_pickaxes, diamond_pickaxes, stars, stars_earned_mine, stone_block_type, stone_hits_required, stone_hits_done, diamond_block_type, diamond_hits_required, diamond_hits_done from users where tg_id = $1', [tg_id]);
+  const u = res.rows[0];
+  return {
+    stone_pickaxes: u.stone_pickaxes,
+    diamond_pickaxes: u.diamond_pickaxes,
+    stars: u.stars,
+    stars_earned_mine: u.stars_earned_mine,
+    stone: { type: u.stone_block_type, required: u.stone_hits_required, done: u.stone_hits_done, left: Math.max(0, u.stone_hits_required - u.stone_hits_done) },
+    diamond: { type: u.diamond_block_type, required: u.diamond_hits_required, done: u.diamond_hits_done, left: Math.max(0, u.diamond_hits_required - u.diamond_hits_done) },
+  };
+}
+
+async function mineHit(tg_id, pickaxe) {
   const client = await pool.connect();
   try {
     await client.query('begin');
-    const { rows } = await client.query('select stone_pickaxes, diamond_pickaxes, stars, stars_earned_mine from users where tg_id = $1 for update', [tg_id]);
-    if (!rows.length) throw new Error('not_found');
-    const user = rows[0];
+    const row = await client.query('select * from users where tg_id = $1 for update', [tg_id]);
+    if (!row.rows.length) throw new Error('not_found');
+    const u = row.rows[0];
+    const isStone = pickaxe === 'stone';
+    const countField = isStone ? 'stone_pickaxes' : 'diamond_pickaxes';
+    const typeField = isStone ? 'stone_block_type' : 'diamond_block_type';
+    const reqField = isStone ? 'stone_hits_required' : 'diamond_hits_required';
+    const doneField = isStone ? 'stone_hits_done' : 'diamond_hits_done';
 
-    let block = null; let hitsMin = 0; let hitsMax = 0; let useField = '';
-    if (pickaxe === 'stone') { block = Math.random() < 0.5 ? 'wood' : 'stone'; hitsMin = 3; hitsMax = 5; useField = 'stone_pickaxes'; }
-    else if (pickaxe === 'diamond') { block = Math.random() < 0.5 ? 'gold' : 'diamond'; hitsMin = (block === 'gold') ? 2 : 4; hitsMax = (block === 'gold') ? 3 : 5; useField = 'diamond_pickaxes'; }
-    else { await client.query('rollback'); return { error: 'invalid_pickaxe' }; }
+    const available = Number(u[countField] || 0);
+    if (available <= 0) { await client.query('rollback'); return { error: 'not_enough_pickaxes' }; }
 
-    const needed = randInt(hitsMin, hitsMax);
-    const available = Number(user[useField]);
-    if (available < needed) { await client.query('rollback'); return { error: 'not_enough_pickaxes', needed, available, block }; }
+    let type = u[typeField];
+    let required = u[reqField];
+    let done = u[doneField] || 0;
 
-    const starsEarned = rollStars(block);
-    const nft = rollNFT(block);
+    if (!type || !required) {
+      type = pickBlockFor(pickaxe); const [a,b] = hitsRange(type); required = randInt(a,b); done = 0;
+    }
+
+    const newDone = done + 1;
+    let reward = null;
+    let nft = null;
+    let starsAfter = Number(u.stars);
+    let starsEarnedMine = Number(u.stars_earned_mine);
+    let newType = type; let newReq = required; let newDonePersist = newDone;
+
+    if (newDone >= required) {
+      const starsEarned = rollStars(type);
+      nft = rollNFT(type);
+      starsAfter += starsEarned;
+      starsEarnedMine += starsEarned;
+      newType = pickBlockFor(pickaxe);
+      const [aa,bb] = hitsRange(newType);
+      newReq = randInt(aa,bb);
+      newDonePersist = 0;
+      reward = { starsEarned, nft, block: type, completed: true };
+    }
 
     const upd = await client.query(
-      `update users set ${useField} = ${useField} - $2, stars = stars + $3, stars_earned_mine = stars_earned_mine + $3, updated_at = now() where tg_id = $1 returning stone_pickaxes, diamond_pickaxes, stars, stars_earned_mine`,
-      [tg_id, needed, starsEarned]
+      `update users set ${countField} = ${countField} - 1, ${typeField} = $2, ${reqField} = $3, ${doneField} = $4, stars = $5, stars_earned_mine = $6, updated_at = now() where tg_id = $1 returning stone_pickaxes, diamond_pickaxes, stars, stars_earned_mine, ${typeField} as type, ${reqField} as required, ${doneField} as done`,
+      [tg_id, newType, newReq, newDonePersist, starsAfter, starsEarnedMine]
     );
 
     await client.query('commit');
-    return { block, hits: needed, starsEarned, nft, stone_pickaxes: upd.rows[0].stone_pickaxes, diamond_pickaxes: upd.rows[0].diamond_pickaxes, stars: upd.rows[0].stars, stars_earned_mine: upd.rows[0].stars_earned_mine };
-  } catch (e) {
-    await client.query('rollback');
-    throw e;
-  } finally { client.release(); }
+    const r = upd.rows[0];
+    return {
+      pickaxe,
+      stone_pickaxes: r.stone_pickaxes,
+      diamond_pickaxes: r.diamond_pickaxes,
+      stars: r.stars,
+      stars_earned_mine: r.stars_earned_mine,
+      block: r.type,
+      required: r.required,
+      done: r.done,
+      left: Math.max(0, r.required - r.done),
+      reward,
+    };
+  } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
 }
 
 async function mineLeaders(limit = 100) {
@@ -219,6 +290,7 @@ module.exports = {
   grantDailyPicks,
   purchaseDiamondPick,
   creditReferral,
-  mineAction,
+  mineState,
+  mineHit,
   mineLeaders,
 };

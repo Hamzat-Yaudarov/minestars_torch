@@ -12,7 +12,8 @@ const {
   topLeaders,
   grantDailyPicks,
   purchaseDiamondPick,
-  mineAction,
+  mineState,
+  mineHit,
   mineLeaders,
 } = require('./db');
 
@@ -89,9 +90,8 @@ app.get('/api/mine/state', async (req, res) => {
   try {
     const tg_id = Number(req.query.user_id);
     if (!tg_id) return res.status(400).json({ error: 'user_id required' });
-    const u = await getUser(tg_id);
-    if (!u) return res.status(404).json({ error: 'not_found' });
-    res.json({ stone_pickaxes: u.stone_pickaxes, diamond_pickaxes: u.diamond_pickaxes, stars: u.stars, stars_earned_mine: u.stars_earned_mine });
+    const s = await mineState(tg_id);
+    res.json(s);
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
 
@@ -114,13 +114,13 @@ app.post('/api/mine/purchase-dpick', async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
 
-app.post('/api/mine/mine', async (req, res) => {
+app.post('/api/mine/hit', async (req, res) => {
   try {
     const tg_id = Number(req.body.user_id);
     const pickaxe = req.body.pickaxe;
     if (!tg_id) return res.status(400).json({ error: 'user_id required' });
     if (pickaxe !== 'stone' && pickaxe !== 'diamond') return res.status(400).json({ error: 'invalid_pickaxe' });
-    const r = await mineAction(tg_id, pickaxe);
+    const r = await mineHit(tg_id, pickaxe);
     if (r && r.error) return res.status(400).json(r);
     res.json(r);
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
@@ -151,13 +151,7 @@ if (BOT_TOKEN) {
       const text = 'Добро пожаловать в MineStars Torch! Откройте игру ниже.';
       const url = `${BASE_URL}/miniapp/`;
       await ctx.reply(text, {
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: 'Открыть игру', web_app: { url } },
-            ],
-          ],
-        },
+        reply_markup: { inline_keyboard: [[ { text: 'Открыть игру', web_app: { url } } ]] },
       });
     } catch (e) {
       console.error('start error', e);
@@ -177,10 +171,5 @@ if (BOT_TOKEN) {
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 ensureSchema()
-  .then(() => {
-    app.listen(PORT, () => console.log(`Server on ${PORT}`));
-  })
-  .catch((e) => {
-    console.error('Schema init failed', e);
-    process.exit(1);
-  });
+  .then(() => { app.listen(PORT, () => console.log(`Server on ${PORT}`)); })
+  .catch((e) => { console.error('Schema init failed', e); process.exit(1); });

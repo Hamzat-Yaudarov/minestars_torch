@@ -14,7 +14,7 @@
     diamond: 0,
     mineTab: 'mine',
     selectedPickaxe: null,
-    currentBlock: null,
+    blocks: { stone: { type: null, left: 0 }, diamond: { type: null, left: 0 } },
   };
 
   const els = {
@@ -42,14 +42,28 @@
     stoneCount: document.getElementById('stoneCount'),
     diamondCount: document.getElementById('diamondCount'),
     pickCards: Array.from(document.querySelectorAll('.pickaxe-card')),
-    btnMine: document.getElementById('btnMine'),
     btnDaily: document.getElementById('btnDaily'),
     btnBuyDiamond: document.getElementById('btnBuyDiamond'),
     blockView: document.getElementById('blockView'),
     blockLabel: document.getElementById('blockLabel'),
+    hitsLabel: document.getElementById('hitsLabel'),
     mineResult: document.getElementById('mineResult'),
     mineLeadersList: document.getElementById('mineLeadersList'),
   };
+
+  // simple sounds using WebAudio
+  const audio = { ctx: null };
+  function beep(freq=440, dur=80, type='square', vol=0.03) {
+    try {
+      if (!audio.ctx) audio.ctx = new (window.AudioContext||window.webkitAudioContext)();
+      const ctx = audio.ctx;
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = type; o.frequency.value = freq; g.gain.value = vol;
+      o.connect(g); g.connect(ctx.destination);
+      o.start(); setTimeout(()=>{ o.stop(); }, dur);
+    } catch {}
+  }
 
   function setActiveTab(name){
     els.tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
@@ -134,21 +148,18 @@
   function setPickaxe(p){
     state.selectedPickaxe = p;
     els.pickCards.forEach(c => c.classList.toggle('active', c.dataset.pickaxe === p));
-    let block = null;
-    if (p === 'stone') block = Math.random() < 0.5 ? 'wood' : 'stone';
-    if (p === 'diamond') block = Math.random() < 0.5 ? 'gold' : 'diamond';
-    state.currentBlock = block;
-    renderBlock(block);
-    els.btnMine.disabled = !p;
+    const blk = state.blocks[p] || { type: null, left: 0 };
+    renderBlock(blk.type, blk.left);
   }
 
-  function renderBlock(block){
+  function renderBlock(block, left){
     els.blockView.className = 'block-view';
-    if (!block) { els.blockLabel.textContent = 'Выберите кирку'; return; }
+    if (!block) { els.blockLabel.textContent = 'Выберите кирку'; els.hitsLabel.textContent=''; return; }
     const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Золотой блок'], diamond:['block-diamond','Алмазный блок'] };
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
+    els.hitsLabel.textContent = `Осталось ударов: ${left}`;
   }
 
   async function initMineView(){
@@ -157,19 +168,22 @@
     state.stone = Number(data.stone_pickaxes||0);
     state.diamond = Number(data.diamond_pickaxes||0);
     state.stars = Number(data.stars||state.stars);
+    state.blocks.stone = { type: data.stone.type, left: data.stone.left };
+    state.blocks.diamond = { type: data.diamond.type, left: data.diamond.left };
     els.stoneCount.textContent = String(state.stone);
     els.diamondCount.textContent = String(state.diamond);
     updateBalancesUI();
+    if (!state.selectedPickaxe) setPickaxe('stone'); else setPickaxe(state.selectedPickaxe);
   }
 
   async function claimDaily(){
-    if (!state.user) return;
+    if (!state.user) return; beep(600,80,'square');
     const r = await fetchJSON('/api/mine/daily-claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
     if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); }
   }
 
   async function buyDiamond(){
-    if (!state.user) return;
+    if (!state.user) return; beep(320,100,'sawtooth');
     const r = await fetchJSON('/api/mine/purchase-dpick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
     state.diamond = Number(r.diamond_pickaxes||state.diamond);
     state.stars = Number(r.stars||state.stars);
@@ -177,23 +191,42 @@
     updateBalancesUI();
   }
 
-  async function doMine(){
+  function spawnReward(reward){
+    const el = document.createElement('div');
+    el.className = 'reward reward-fly';
+    const nftImg = nftToImg(reward && reward.nft);
+    if (nftImg) {
+      el.innerHTML = `<img src="${nftImg}" alt="nft" style="width:80px;height:80px;object-fit:contain;border-radius:12px;"/>`;
+    } else {
+      el.textContent = `+⭐ ${reward ? reward.starsEarned : ''}`;
+      el.style.fontWeight = '800';
+      el.style.fontSize = '18px';
+    }
+    els.blockView.appendChild(el);
+    setTimeout(()=>{ el.remove(); }, 1500);
+  }
+
+  async function hitBlock(){
     if (!state.user || !state.selectedPickaxe) return;
-    const r = await fetchJSON('/api/mine/mine', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, pickaxe: state.selectedPickaxe }) });
+    els.blockView.classList.add('block-hit'); setTimeout(()=>els.blockView.classList.remove('block-hit'), 220);
+    beep(120,60,'square',0.02);
+    const r = await fetchJSON('/api/mine/hit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, pickaxe: state.selectedPickaxe }) });
     state.stone = Number(r.stone_pickaxes||state.stone);
     state.diamond = Number(r.diamond_pickaxes||state.diamond);
     state.stars = Number(r.stars||state.stars);
     els.stoneCount.textContent = String(state.stone);
     els.diamondCount.textContent = String(state.diamond);
     updateBalancesUI();
-    state.currentBlock = r.block; renderBlock(r.block);
-    const nftImg = nftToImg(r.nft);
-    els.mineResult.classList.remove('hidden');
-    els.mineResult.innerHTML = `<div><b>Блок:</b> ${labelBlock(r.block)} • <b>Удары:</b> ${r.hits}</div><div><b>Награда:</b> ⭐ ${r.starsEarned}${r.nft?` • NFT: ${r.nft}`:''}</div>${nftImg?`<div><img src="${nftImg}" alt="nft" style="max-width:120px;border-radius:10px;margin-top:8px;"/></div>`:''}`;
+
+    // update block state for current pickaxe
+    state.blocks[state.selectedPickaxe] = { type: r.block, left: r.left };
+    renderBlock(r.block, r.left);
+
+    if (r.reward && r.reward.completed) { beep(880,120,'triangle',0.04); spawnReward(r.reward); }
   }
 
   function labelBlock(b){ return {wood:'Деревянный',stone:'Каменный',gold:'Золотой',diamond:'Алмазный'}[b] || ''; }
-  function nftToImg(n){ if (!n) return ''; const map={ 'Snoop Dogg':'https://imgur.com/26Al3Dv.png','Swag Bag':'https://imgur.com/UV9BFMQ.png','Easter Egg':'https://imgur.com/Afvazp4.png','Snoop Cigar':'https://imgur.com/VLaneJA.png','Low Rider':'https://imgur.com/TWhlyos.png' }; return map[n] || ''; }
+  function nftToImg(n){ if (!n) return ''; const map={ 'Snoop Dogg':'https://i.imgur.com/26Al3Dv.png','Swag Bag':'https://i.imgur.com/UV9BFMQ.png','Easter Egg':'https://i.imgur.com/Afvazp4.png','Snoop Cigar':'https://i.imgur.com/VLaneJA.png','Low Rider':'https://i.imgur.com/TWhlyos.png' }; return map[n] || ''; }
 
   async function loadMineLeaders(){
     const rows = await fetchJSON('/api/mine/leaderboard');
@@ -214,10 +247,10 @@
     els.closeLeaders.addEventListener('click', () => els.leadersModal.classList.add('hidden'));
 
     els.mineTabBtns.forEach(b => b.addEventListener('click', () => setMineSub(b.dataset.mtab)));
-    els.pickCards.forEach(card => card.addEventListener('click', () => setPickaxe(card.dataset.pickaxe)));
+    els.pickCards.forEach(card => card.addEventListener('click', () => { beep(220,60,'square',0.02); setPickaxe(card.dataset.pickaxe); }));
     els.btnDaily.addEventListener('click', claimDaily);
     els.btnBuyDiamond.addEventListener('click', buyDiamond);
-    els.btnMine.addEventListener('click', doMine);
+    els.blockView.addEventListener('click', hitBlock);
   }
 
   function startTick(){ if (state.tickTimer) clearInterval(state.tickTimer); state.tickTimer = setInterval(tick, 1000); }

@@ -68,18 +68,26 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, Bl
 .pickaxe-count { font-weight: 700; }
 
 .mine-block { display: grid; place-items: center; padding: 10px; }
-.block-view { width: 220px; height: 220px; border-radius: 14px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,0.12); background: #111827; }
+.block-view { width: 260px; height: 260px; border-radius: 14px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,0.12); background: #111827; position: relative; overflow: hidden; cursor: pointer; }
 .block-label { font-weight: 800; text-align: center; }
+.hits-label { position: absolute; bottom: 8px; right: 10px; font-weight: 800; font-size: 12px; opacity: 0.9; }
 .block-wood { background: linear-gradient(180deg,#8b5a2b,#5d3b17); }
 .block-stone { background: linear-gradient(180deg,#7a7a7a,#4a4a4a); }
 .block-gold { background: linear-gradient(180deg,#ffd54f,#ffc107); }
 .block-diamond { background: linear-gradient(180deg,#7dd3fc,#38bdf8); }
 
+.block-hit { animation: blockHit 200ms ease; }
+@keyframes blockHit { 0% { transform: translateX(0); } 25% { transform: translateX(-4px); } 50% { transform: translateX(4px); } 75% { transform: translateX(-2px); } 100% { transform: translateX(0); } }
+
+.reward { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); pointer-events: none; }
+.reward-fly { animation: rewardFly 1.4s ease-in forwards; }
+@keyframes rewardFly { 0% { transform: translate(-50%,-50%) scale(0.8); opacity: 0; }
+  20% { transform: translate(-50%,-70%) scale(1); opacity: 1; }
+  60% { transform: translate(-50%,0%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%,180%) scale(0.9); opacity: 0; } }
+
 .mine-actions { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .mine-result { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px; }
 .hidden { display: none; }
 
-@media (max-width: 480px) {
-  .slide-image { max-width: 92%; max-height: 56%; }
-  .pickaxes { grid-template-columns: 1fr; }
-}
+@media (max-width: 480px) { .slide-image { max-width: 92%; max-height: 56%; } .pickaxes { grid-template-columns: 1fr; } }
