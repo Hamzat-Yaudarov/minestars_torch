@@ -7,7 +7,6 @@
     rubies: 0,
     stars: 0,
     torchOn: true,
-    torchExpiresAt: null,
     onboardingSeen: false,
     sliderIndex: 0,
     tickTimer: null,
@@ -16,6 +15,7 @@
     mineTab: 'mine',
     selectedPickaxe: null,
     blocks: { stone: { type: null, left: 0 }, diamond: { type: null, left: 0 } },
+    secondsLeft: 0,
   };
 
   const els = {
@@ -57,7 +57,7 @@
     mineResult: document.getElementById('mineResult'),
     mineLeadersList: document.getElementById('mineLeadersList'),
 
-    // countdown
+    // home countdown
     torchCountdown: document.getElementById('torchCountdown'),
   };
 
@@ -90,22 +90,6 @@
     els.rubiesTop.textContent = String(state.rubies);
   }
 
-  function updateCountdownUI(){
-    if (!els.torchCountdown) return;
-    if (!state.torchExpiresAt) { els.torchCountdown.textContent = ''; return; }
-    const now = Date.now();
-    const diff = Math.max(0, state.torchExpiresAt - now);
-    const hh = Math.floor(diff / 3600000);
-    const mm = Math.floor((diff % 3600000) / 60000);
-    const ss = Math.floor((diff % 60000) / 1000);
-    const pad = (n)=> String(n).padStart(2,'0');
-    if (diff <= 0) {
-      els.torchCountdown.textContent = 'Факел погас';
-    } else {
-      els.torchCountdown.textContent = `Осталось до угасания: ${pad(hh)}:${pad(mm)}:${pad(ss)}`;
-    }
-  }
-
   function showOnboarding(show){ els.onboarding.classList.toggle('active', show); }
 
   function setSlide(idx){
@@ -133,12 +117,10 @@
     state.rubies = Number(user.rubies || 0);
     state.stars = Number(user.stars || 0);
     state.torchOn = !!user.torch_on;
-    state.torchExpiresAt = user.torch_expires_at ? Date.parse(user.torch_expires_at) : null;
     state.onboardingSeen = !!user.onboarding_seen;
     const photo = (u && u.photo_url) ? u.photo_url : (user.photo_url || '');
     els.avatar.src = photo || 'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22><rect width=%2240%22 height=%2240%22 fill=%22%23222%22/></svg>';
     updateBalancesUI();
-    updateCountdownUI();
     showOnboarding(!state.onboardingSeen);
   }
 
@@ -147,17 +129,52 @@
     try { await fetchJSON('/api/onboarding-seen', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) }); state.onboardingSeen = true; } catch {}
   }
 
-  async function tick(){
+  function formatTime(sec){
+    const s = Math.max(0, Math.floor(sec));
+    const h = Math.floor(s/3600);
+    const m = Math.floor((s%3600)/60);
+    const ss = s%60;
+    const pad = (n)=> String(n).padStart(2,'0');
+    if (h>0) return `${pad(h)}:${pad(m)}:${pad(ss)}`;
+    return `${pad(m)}:${pad(ss)}`;
+  }
+
+  function updateCountdownUI(){
+    if (!els.torchCountdown) return;
+    if (state.torchOn && state.secondsLeft > 0) {
+      els.torchCountdown.textContent = `До угасания: ${formatTime(state.secondsLeft)}`;
+    } else if (state.torchOn && state.secondsLeft === 0) {
+      els.torchCountdown.textContent = 'До угасания: 00:00';
+    } else {
+      els.torchCountdown.textContent = 'Факел погас';
+    }
+  }
+
+  async function loadTorchState(){
     if (!state.user) return;
     try {
-      const data = await fetchJSON('/api/tick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
-      if (typeof data.rubies !== 'undefined') state.rubies = Number(data.rubies);
-      if (typeof data.stars !== 'undefined') state.stars = Number(data.stars);
-      if (typeof data.torch_on !== 'undefined') state.torchOn = !!data.torch_on;
-      if (data.torch_expires_at) state.torchExpiresAt = Date.parse(data.torch_expires_at);
-      updateBalancesUI();
+      const s = await fetchJSON(`/api/torch/state?user_id=${state.user.tg_id}`);
+      state.torchOn = !!s.torch_on;
+      state.secondsLeft = Number(s.seconds_left || 0);
       updateCountdownUI();
     } catch {}
+  }
+
+  async function tick(){
+    if (!state.user) return;
+    if (state.torchOn) {
+      try {
+        const data = await fetchJSON('/api/tick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
+        state.rubies = Number(data.rubies || state.rubies + 1);
+        state.stars = Number(data.stars || state.stars);
+        state.torchOn = !!data.torch_on;
+        if (typeof data.seconds_left === 'number') state.secondsLeft = Number(data.seconds_left);
+        updateBalancesUI();
+      } catch {}
+    }
+    if (state.secondsLeft > 0) state.secondsLeft -= 1; else state.secondsLeft = 0;
+    if (state.secondsLeft === 0 && state.torchOn) { state.torchOn = false; }
+    updateCountdownUI();
   }
 
   async function loadLeaders(){
@@ -165,7 +182,7 @@
     els.leadersList.innerHTML = rows.map((r, i) => {
       const name = r.username ? '@'+r.username : (r.first_name || 'Игрок');
       const photo = r.photo_url || '';
-      return `<div class=\"leader-row\"><img class=\"leader-avatar\" src=\"${photo}\" alt=\"a\" /><div class=\"leader-name\">${i+1}. ${name}</div><div class=\"leader-rubies\">💎 ${r.rubies}</div></div>`;
+      return `<div class="leader-row"><img class="leader-avatar" src="${photo}" alt="a" /><div class="leader-name">${i+1}. ${name}</div><div class="leader-rubies">💎 ${r.rubies}</div></div>`;
     }).join('');
   }
 
@@ -192,7 +209,7 @@
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
-    els.hitsLabel.textContent = `Осталось ударов: ${left}`;
+    els.hitsLabel.textContent = `О��талось ударов: ${left}`;
   }
 
   async function initMineView(){
@@ -217,7 +234,7 @@
 
   async function buyDiamond(){
     if (!state.user) return; play('click');
-    const prev = els.btnBuyDiamond.textContent; els.btnBuyDiamond.disabled = true; els.btnBuyDiamond.textContent = 'Покупка...';
+    const prev = els.btnBuyDiamond.textContent; els.btnBuyDiamond.disabled = true; els.btnBuyDiamond.textContent = '��окупка...';
     try {
       const r = await fetchJSON('/api/mine/purchase-dpick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
       state.diamond = Number(r.diamond_pickaxes||state.diamond);
@@ -325,5 +342,5 @@
   // init
   bindEvents();
   setSlide(0);
-  loadUser().then(()=>{ startTick(); });
+  loadUser().then(()=> loadTorchState()).then(()=>{ startTick(); });
 })();

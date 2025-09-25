@@ -16,6 +16,7 @@ const {
   mineHit,
   mineLeaders,
   getUserNfts,
+  torchState,
 } = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -76,6 +77,15 @@ app.post('/api/tick', async (req, res) => {
     console.error(e);
     res.status(500).json({ error: 'internal_error' });
   }
+});
+
+app.get('/api/torch/state', async (req, res) => {
+  try {
+    const tg_id = Number(req.query.user_id);
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const s = await torchState(tg_id);
+    res.json(s);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
 
 app.get('/api/leaderboard', async (_req, res) => {
@@ -164,7 +174,7 @@ if (BOT_TOKEN) {
         last_name: user.last_name,
         photo_url: user.photo_url,
       });
-      const text = 'Добро пожаловать в MineStars Torch! Откройте игру ниже.';
+      const text = 'Добро пожаловать �� MineStars Torch! Откройте игру ниже.';
       const url = `${BASE_URL}/miniapp/`;
       await ctx.reply(text, {
         reply_markup: { inline_keyboard: [[ { text: 'Открыть игру', web_app: { url } } ]] },
