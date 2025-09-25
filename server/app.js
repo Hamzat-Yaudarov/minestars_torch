@@ -14,8 +14,8 @@ const {
   purchaseDiamondPick,
   mineState,
   mineHit,
-  getUserNFTs,
   mineLeaders,
+  getUserNfts,
 } = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -30,6 +30,8 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 // Serve static MiniApp
 app.use('/miniapp', express.static(path.join(__dirname, '..', 'public', 'miniapp')));
+// Serve audio assets
+app.use('/muzik', express.static(path.join(__dirname, '..', 'muzik')));
 
 // API routes
 app.get('/api/user', async (req, res) => {
@@ -86,6 +88,19 @@ app.get('/api/leaderboard', async (_req, res) => {
   }
 });
 
+// Inventory API
+app.get('/api/inventory', async (req, res) => {
+  try {
+    const tg_id = Number(req.query.user_id);
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const items = await getUserNfts(tg_id);
+    res.json(items);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'internal_error' });
+  }
+});
+
 // Mining API
 app.get('/api/mine/state', async (req, res) => {
   try {
@@ -130,16 +145,6 @@ app.post('/api/mine/hit', async (req, res) => {
 app.get('/api/mine/leaderboard', async (_req, res) => {
   try {
     const rows = await mineLeaders(100);
-    res.json(rows);
-  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
-});
-
-// NFT Inventory
-app.get('/api/nfts', async (req, res) => {
-  try {
-    const tg_id = Number(req.query.user_id);
-    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
-    const rows = await getUserNFTs(tg_id);
     res.json(rows);
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });

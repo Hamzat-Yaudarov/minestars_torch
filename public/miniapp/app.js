@@ -15,7 +15,6 @@
     mineTab: 'mine',
     selectedPickaxe: null,
     blocks: { stone: { type: null, left: 0 }, diamond: { type: null, left: 0 } },
-    nfts: [],
   };
 
   const els = {
@@ -36,8 +35,11 @@
     leadersList: document.getElementById('leadersList'),
     closeLeaders: document.getElementById('closeLeaders'),
 
-    // header actions
+    // inventory
     btnInventory: document.getElementById('btnInventory'),
+    inventoryModal: document.getElementById('inventoryModal'),
+    inventoryList: document.getElementById('inventoryList'),
+    closeInventory: document.getElementById('closeInventory'),
 
     // mine
     mineTabBtns: Array.from(document.querySelectorAll('.mine-tab-btn')),
@@ -53,25 +55,24 @@
     hitsLabel: document.getElementById('hitsLabel'),
     mineResult: document.getElementById('mineResult'),
     mineLeadersList: document.getElementById('mineLeadersList'),
-
-    // inventory modal
-    inventoryModal: document.getElementById('inventoryModal'),
-    inventoryList: document.getElementById('inventoryList'),
-    closeInventory: document.getElementById('closeInventory'),
-
-    // toast
-    toast: document.getElementById('toast'),
   };
 
-  // Sounds
-  const sfx = {
-    purchase: new Audio('./muzik/purchase.mp3'),
-    hit: new Audio('./muzik/hit.mp3'),
-    reward: new Audio('./muzik/reward.mp3'),
-    click: new Audio('./muzik/click.mp3'),
+  // Sounds from /muzik
+  const sounds = {
+    purchase: new Audio('/muzik/purchase.mp3'),
+    hit: new Audio('/muzik/hit.mp3'),
+    reward: new Audio('/muzik/reward.mp3'),
+    click: new Audio('/muzik/click.mp3'),
   };
-  Object.values(sfx).forEach(a => { a.volume = 0.3; });
-  function play(a){ try { a.currentTime = 0; a.play(); } catch {} }
+  Object.values(sounds).forEach(a => { a.preload = 'auto'; a.volume = 0.6; });
+  let audioUnlocked = false;
+  function play(name){
+    try {
+      const a = sounds[name]; if (!a) return;
+      const node = a.cloneNode(); node.volume = a.volume; node.play();
+    } catch {}
+  }
+  function unlockAudioOnce(){ if (audioUnlocked) return; audioUnlocked = true; try { Object.values(sounds).forEach(a=>{ a.muted = true; a.play().catch(()=>{}).finally(()=>{ a.pause(); a.currentTime = 0; a.muted = false; }); }); } catch {} }
 
   function setActiveTab(name){
     els.tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
@@ -144,26 +145,6 @@
     }).join('');
   }
 
-  // Inventory
-  const nftImgs = { 'Snoop Dogg':'https://i.imgur.com/26Al3Dv.png','Swag Bag':'https://i.imgur.com/UV9BFMQ.png','Easter Egg':'https://i.imgur.com/Afvazp4.png','Snoop Cigar':'https://i.imgur.com/VLaneJA.png','Low Rider':'https://i.imgur.com/TWhlyos.png' };
-  async function loadInventory(){
-    if (!state.user) return;
-    const rows = await fetchJSON(`/api/nfts?user_id=${state.user.tg_id}`);
-    state.nfts = rows;
-    renderInventory();
-  }
-  function renderInventory(){
-    els.inventoryList.innerHTML = state.nfts.length ? state.nfts.map(n => `
-      <div class="inventory-card">
-        <img class="inventory-thumb" src="${nftImgs[n.name]||''}" alt="${n.name}" />
-        <div class="inventory-name">${n.name}</div>
-        <div class="inventory-count">x${n.count}</div>
-      </div>
-    `).join('') : '<div style="padding:16px;opacity:.8;">Пусто</div>';
-  }
-  function openInventory(){ els.inventoryModal.classList.remove('hidden'); play(sfx.click); loadInventory(); }
-  function closeInventory(){ els.inventoryModal.classList.add('hidden'); play(sfx.click); }
-
   // Mine
   function setMineSub(tab){
     state.mineTab = tab;
@@ -183,7 +164,7 @@
   function renderBlock(block, left){
     els.blockView.className = 'block-view';
     if (!block) { els.blockLabel.textContent = 'Выберите кирку'; els.hitsLabel.textContent=''; return; }
-    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Золотой блок'], diamond:['block-diamond','Алмазный блок'] };
+    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Зо��отой блок'], diamond:['block-diamond','Алмазный блок'] };
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
@@ -205,104 +186,114 @@
   }
 
   async function claimDaily(){
-    if (!state.user) return; play(sfx.click);
+    if (!state.user) return; play('click');
     const r = await fetchJSON('/api/mine/daily-claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
-    if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); showToast(`+${r.granted} каменных кирок`); }
+    if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); showToast(`Получено: +${r.granted} ��аменных кирок`); }
   }
 
   async function buyDiamond(){
-    if (!state.user) return; play(sfx.click);
+    if (!state.user) return; play('click');
+    const prev = els.btnBuyDiamond.textContent; els.btnBuyDiamond.disabled = true; els.btnBuyDiamond.textContent = 'Покупка...';
     try {
       const r = await fetchJSON('/api/mine/purchase-dpick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
       state.diamond = Number(r.diamond_pickaxes||state.diamond);
       state.stars = Number(r.stars||state.stars);
       els.diamondCount.textContent = String(state.diamond);
       updateBalancesUI();
-      showToast('Куплено: Алмазная кирка (+1)');
-      play(sfx.purchase);
+      play('purchase');
+      showToast('Алмазная кирка куплена! −150⭐');
     } catch (e) {
-      showToast('Не хватает ⭐', true);
+      const msg = (e && e.error) ? e.error : 'Ошибка покупки';
+      if (msg === 'not_enough_stars') showToast('Недостаточно ⭐ для покупки'); else showToast('Не удалось купить кирку');
+    } finally {
+      els.btnBuyDiamond.disabled = false; els.btnBuyDiamond.textContent = prev;
     }
   }
 
   function spawnReward(reward){
-    if (!reward) return;
-    const star = document.createElement('div');
-    star.className = 'reward reward-star reward-fly';
-    star.textContent = `+⭐ ${reward.starsEarned}`;
-
-    els.blockView.appendChild(star);
-    setTimeout(()=>{ star.remove(); }, 1700);
-
-    if (reward.nft) {
-      const nft = document.createElement('div');
-      nft.className = 'reward reward-fly';
-      nft.innerHTML = `<img src="${nftImgs[reward.nft]||''}" alt="nft" style="width:92px;height:92px;object-fit:contain;border-radius:12px;"/>`;
-      els.blockView.appendChild(nft);
-      setTimeout(()=>{ nft.remove(); }, 1700);
-      // optimistic update inventory
-      const found = state.nfts.find(x => x.name === reward.nft);
-      if (found) found.count += 1; else state.nfts.push({ name: reward.nft, count: 1 });
-      renderInventory();
-      play(sfx.reward);
+    const el = document.createElement('div');
+    el.className = 'reward reward-fly';
+    const nftImg = nftToImg(reward && reward.nft);
+    if (nftImg) {
+      el.innerHTML = `<img class=\"reward-nft-image\" src=\"${nftImg}\" alt=\"nft\"/>`;
+    } else {
+      el.innerHTML = `<div class=\"reward-badge\">+⭐ ${reward ? reward.starsEarned : ''}</div>`;
     }
+    els.blockView.appendChild(el);
+    setTimeout(()=>{ el.remove(); }, 1600);
   }
 
   async function hitBlock(){
     if (!state.user || !state.selectedPickaxe) return;
+    unlockAudioOnce();
     els.blockView.classList.add('block-hit'); setTimeout(()=>els.blockView.classList.remove('block-hit'), 220);
-    play(sfx.hit);
-    try {
-      const r = await fetchJSON('/api/mine/hit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, pickaxe: state.selectedPickaxe }) });
-      state.stone = Number(r.stone_pickaxes||state.stone);
-      state.diamond = Number(r.diamond_pickaxes||state.diamond);
-      state.stars = Number(r.stars||state.stars);
-      els.stoneCount.textContent = String(state.stone);
-      els.diamondCount.textContent = String(state.diamond);
-      updateBalancesUI();
+    play('hit');
+    const r = await fetchJSON('/api/mine/hit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, pickaxe: state.selectedPickaxe }) });
+    state.stone = Number(r.stone_pickaxes||state.stone);
+    state.diamond = Number(r.diamond_pickaxes||state.diamond);
+    state.stars = Number(r.stars||state.stars);
+    els.stoneCount.textContent = String(state.stone);
+    els.diamondCount.textContent = String(state.diamond);
+    updateBalancesUI();
 
-      state.blocks[state.selectedPickaxe] = { type: r.block, left: r.left };
-      renderBlock(r.block, r.left);
+    // update block state for current pickaxe
+    state.blocks[state.selectedPickaxe] = { type: r.block, left: r.left };
+    renderBlock(r.block, r.left);
 
-      if (r.reward && r.reward.completed) { spawnReward(r.reward); }
-    } catch {}
+    if (r.reward && r.reward.completed) {
+      play('reward');
+      els.blockView.classList.add('block-reward-glow'); setTimeout(()=>els.blockView.classList.remove('block-reward-glow'), 900);
+      spawnReward(r.reward);
+      const msg = r.reward.nft ? `Выпал NFT: ${r.reward.nft} +⭐ ${r.reward.starsEarned}` : `+⭐ ${r.reward.starsEarned}`;
+      showToast(msg);
+    }
   }
 
-  function showToast(text, error){
-    els.toast.textContent = text;
-    els.toast.classList.toggle('error', !!error);
-    els.toast.classList.remove('hidden');
-    setTimeout(()=> els.toast.classList.add('hidden'), 1400);
-  }
-
-  function nftToImg(n){ if (!n) return ''; return nftImgs[n] || ''; }
+  function labelBlock(b){ return {wood:'Деревянный',stone:'Каменный',gold:'Золотой',diamond:'Алмазный'}[b] || ''; }
+  function nftToImg(n){ if (!n) return ''; const map={ 'Snoop Dogg':'https://i.imgur.com/26Al3Dv.png','Swag Bag':'https://i.imgur.com/UV9BFMQ.png','Easter Egg':'https://i.imgur.com/Afvazp4.png','Snoop Cigar':'https://i.imgur.com/VLaneJA.png','Low Rider':'https://i.imgur.com/TWhlyos.png' }; return map[n] || ''; }
 
   async function loadMineLeaders(){
     const rows = await fetchJSON('/api/mine/leaderboard');
     els.mineLeadersList.innerHTML = rows.map((r, i) => {
       const name = r.username ? '@'+r.username : (r.first_name || 'Игрок');
       const photo = r.photo_url || '';
-      return `<div class="leader-row"><img class="leader-avatar" src="${photo}" alt="a" /><div class="leader-name">${i+1}. ${name}</div><div class="leader-rubies">⭐ ${r.stars_earned_mine}</div></div>`;
+      return `<div class=\"leader-row\"><img class=\"leader-avatar\" src=\"${photo}\" alt=\"a\" /><div class=\"leader-name\">${i+1}. ${name}</div><div class=\"leader-rubies\">⭐ ${r.stars_earned_mine}</div></div>`;
     }).join('');
   }
 
+  async function loadInventory(){
+    if (!state.user) return;
+    const rows = await fetchJSON(`/api/inventory?user_id=${state.user.tg_id}`);
+    if (!rows.length) { els.inventoryList.innerHTML = `<div style=\"padding:16px;\">Пока пусто</div>`; return; }
+    els.inventoryList.innerHTML = rows.map(r => {
+      const img = nftToImg(r.name);
+      return `<div class=\"inventory-card\">${img ? `<img src=\"${img}\" alt=\"${r.name}\" class=\"reward-nft-image\"/>` : ''}<div class=\"inventory-name\">${r.name}</div><div class=\"inventory-count\">× ${r.count}</div></div>`;
+    }).join('');
+  }
+
+  function showToast(text){
+    const el = document.createElement('div'); el.className = 'toast'; el.textContent = text; document.body.appendChild(el); setTimeout(()=>{ el.remove(); }, 2600);
+  }
+
   function bindEvents(){
-    els.tabButtons.forEach(btn => btn.addEventListener('click', () => { play(sfx.click); setActiveTab(btn.dataset.tab); }));
-    els.nextSlide.addEventListener('click', async () => { play(sfx.click); if (state.sliderIndex < 2) setSlide(state.sliderIndex + 1); else { showOnboarding(false); await setOnboardingDone(); } });
-    els.prevSlide.addEventListener('click', () => { play(sfx.click); setSlide(state.sliderIndex - 1); });
+    els.tabButtons.forEach(btn => btn.addEventListener('click', () => { play('click'); setActiveTab(btn.dataset.tab); }));
+    els.nextSlide.addEventListener('click', async () => { play('click'); if (state.sliderIndex < 2) setSlide(state.sliderIndex + 1); else { showOnboarding(false); await setOnboardingDone(); } });
+    els.prevSlide.addEventListener('click', () => { play('click'); setSlide(state.sliderIndex - 1); });
 
-    els.btnTasks.addEventListener('click', () => { play(sfx.click); setActiveTab('tasks'); });
-    els.btnLeaders.addEventListener('click', async () => { play(sfx.click); await loadLeaders(); els.leadersModal.classList.remove('hidden'); });
-    els.closeLeaders.addEventListener('click', () => { play(sfx.click); els.leadersModal.classList.add('hidden'); });
+    els.btnTasks.addEventListener('click', () => { play('click'); setActiveTab('tasks'); });
+    els.btnLeaders.addEventListener('click', async () => { play('click'); await loadLeaders(); els.leadersModal.classList.remove('hidden'); });
+    els.closeLeaders.addEventListener('click', () => { play('click'); els.leadersModal.classList.add('hidden'); });
 
-    els.btnInventory.addEventListener('click', openInventory);
-    els.closeInventory.addEventListener('click', closeInventory);
+    els.btnInventory.addEventListener('click', async () => { play('click'); await loadInventory(); els.inventoryModal.classList.remove('hidden'); });
+    els.closeInventory.addEventListener('click', () => { play('click'); els.inventoryModal.classList.add('hidden'); });
 
-    els.mineTabBtns.forEach(b => b.addEventListener('click', () => { play(sfx.click); setMineSub(b.dataset.mtab); }));
-    els.pickCards.forEach(card => card.addEventListener('click', () => { play(sfx.click); setPickaxe(card.dataset.pickaxe); }));
+    els.mineTabBtns.forEach(b => b.addEventListener('click', () => { play('click'); setMineSub(b.dataset.mtab); }));
+    els.pickCards.forEach(card => card.addEventListener('click', () => { play('click'); setPickaxe(card.dataset.pickaxe); }));
     els.btnDaily.addEventListener('click', claimDaily);
     els.btnBuyDiamond.addEventListener('click', buyDiamond);
     els.blockView.addEventListener('click', hitBlock);
+
+    document.body.addEventListener('click', unlockAudioOnce, { once: true });
   }
 
   function startTick(){ if (state.tickTimer) clearInterval(state.tickTimer); state.tickTimer = setInterval(tick, 1000); }

@@ -33,16 +33,16 @@ async function ensureSchema() {
     alter table users add column if not exists diamond_block_type text;
     alter table users add column if not exists diamond_hits_required integer;
     alter table users add column if not exists diamond_hits_done integer;
-
-    create table if not exists user_nfts (
-      tg_id bigint references users(tg_id) on delete cascade,
-      name text not null,
-      count integer default 0 not null,
-      primary key (tg_id, name)
-    );
-
     create index if not exists users_rubies_idx on users (rubies desc);
     create index if not exists users_mine_stars_idx on users (stars_earned_mine desc);
+
+    create table if not exists user_nfts (
+      id bigserial primary key,
+      tg_id bigint not null,
+      name text not null,
+      obtained_at timestamptz default now() not null
+    );
+    create index if not exists user_nfts_tg_idx on user_nfts (tg_id);
   `);
 }
 
@@ -253,13 +253,6 @@ async function mineHit(tg_id, pickaxe) {
       nft = rollNFT(type);
       starsAfter += starsEarned;
       starsEarnedMine += starsEarned;
-      if (nft) {
-        await client.query(
-          `insert into user_nfts (tg_id, name, count) values ($1, $2, 1)
-           on conflict (tg_id, name) do update set count = user_nfts.count + 1`,
-          [tg_id, nft]
-        );
-      }
       newType = pickBlockFor(pickaxe);
       const [aa,bb] = hitsRange(newType);
       newReq = randInt(aa,bb);
@@ -272,6 +265,7 @@ async function mineHit(tg_id, pickaxe) {
       [tg_id, newType, newReq, newDonePersist, starsAfter, starsEarnedMine]
     );
 
+    if (nft) { await client.query('insert into user_nfts (tg_id, name) values ($1,$2)', [tg_id, nft]); }
     await client.query('commit');
     const r = upd.rows[0];
     return {
@@ -289,13 +283,13 @@ async function mineHit(tg_id, pickaxe) {
   } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
 }
 
-async function getUserNFTs(tg_id) {
-  const res = await pool.query('select name, count from user_nfts where tg_id = $1 order by count desc, name asc', [tg_id]);
+async function mineLeaders(limit = 100) {
+  const res = await pool.query('select tg_id, username, first_name, last_name, photo_url, stars_earned_mine from users order by stars_earned_mine desc limit $1', [limit]);
   return res.rows;
 }
 
-async function mineLeaders(limit = 100) {
-  const res = await pool.query('select tg_id, username, first_name, last_name, photo_url, stars_earned_mine from users order by stars_earned_mine desc limit $1', [limit]);
+async function getUserNfts(tg_id) {
+  const res = await pool.query('select name, count(*)::int as count from user_nfts where tg_id = $1 group by name order by count desc', [tg_id]);
   return res.rows;
 }
 
@@ -312,6 +306,6 @@ module.exports = {
   creditReferral,
   mineState,
   mineHit,
-  getUserNFTs,
   mineLeaders,
+  getUserNfts,
 };
