@@ -16,8 +16,11 @@ const {
   mineHit,
   mineLeaders,
   getUserNfts,
+  buyReferralTimeBonus,
+  buyEternalTorch,
   exchange,
-  purchaseItem,
+  recordPayment,
+  addStars,
 } = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -78,6 +81,54 @@ app.post('/api/tick', async (req, res) => {
     console.error(e);
     res.status(500).json({ error: 'internal_error' });
   }
+});
+
+// Shop: exchange
+app.post('/api/shop/exchange', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    const { direction, amount } = req.body;
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const r = await exchange(tg_id, direction, amount);
+    if (r && r.error) return res.status(400).json(r);
+    res.json(r);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+app.post('/api/shop/buy-referral-bonus', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const r = await buyReferralTimeBonus(tg_id);
+    if (r && r.error) return res.status(400).json(r);
+    res.json(r);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+app.post('/api/shop/buy-eternal', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const r = await buyEternalTorch(tg_id);
+    if (r && r.error) return res.status(400).json(r);
+    res.json(r);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+// Payments (Telegram Stars)
+app.post('/api/payments/create-invoice', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    const stars = Math.max(1, Math.floor(Number(req.body.stars||0)));
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    if (!bot) return res.status(500).json({ error: 'bot_unavailable' });
+    const payload = `stars_${tg_id}_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const title = 'Пакет игровых звёзд';
+    const description = 'Пополнение игровых ⭐ через Telegram Stars';
+    const prices = [{ label: '⭐', amount: stars }];
+    const invoiceLink = await bot.telegram.createInvoiceLink({ title, description, payload, provider_token: undefined, currency: 'XTR', prices });
+    res.json({ link: invoiceLink, payload });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
 
 app.get('/api/leaderboard', async (_req, res) => {
@@ -151,32 +202,6 @@ app.get('/api/mine/leaderboard', async (_req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
 
-// Shop API
-app.post('/api/shop/exchange', async (req, res) => {
-  try {
-    const tg_id = Number(req.body.user_id);
-    const direction = String(req.body.direction||'');
-    const amount = Math.floor(Number(req.body.amount||0));
-    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
-    if (!['ruby_to_star','star_to_ruby'].includes(direction)) return res.status(400).json({ error: 'invalid_direction' });
-    if (!(amount>0)) return res.status(400).json({ error: 'invalid_amount' });
-    const r = await exchange(tg_id, direction, amount);
-    if (r && r.error) return res.status(400).json(r);
-    res.json(r);
-  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
-});
-
-app.post('/api/shop/purchase-item', async (req, res) => {
-  try {
-    const tg_id = Number(req.body.user_id);
-    const item = String(req.body.item||'');
-    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
-    const r = await purchaseItem(tg_id, item);
-    if (r && r.error) return res.status(400).json(r);
-    res.json(r);
-  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
-});
-
 // Telegram bot webhook
 let bot = null;
 if (BOT_TOKEN) {
@@ -201,6 +226,27 @@ if (BOT_TOKEN) {
       console.error('start error', e);
       await ctx.reply('Произошла ошибка, попробуйте позже.');
     }
+  });
+
+  bot.on('pre_checkout_query', async (ctx) => { try { await ctx.answerPreCheckoutQuery(true); } catch(e){ console.error('pre_checkout', e); } });
+
+  bot.on('message', async (ctx) => {
+    try {
+      const m = ctx.message;
+      if (m && m.successful_payment) {
+        const sp = m.successful_payment;
+        const tg_id = ctx.from.id;
+        const currency = sp.currency;
+        const total = Number(sp.total_amount || 0);
+        let starsCredited = 0;
+        if (currency === 'XTR') { starsCredited = total; }
+        if (starsCredited > 0) {
+          await addStars(tg_id, starsCredited);
+          await recordPayment(tg_id, sp.invoice_payload || '', currency, total, starsCredited);
+          await ctx.reply(`Зачислено ⭐ ${starsCredited}. Спасибо!`);
+        }
+      }
+    } catch (e) { console.error('payment message error', e); }
   });
 
   app.use(bot.webhookCallback('/bot'));

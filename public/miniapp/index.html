@@ -90,29 +90,33 @@
         </section>
         <section id="tab-shop" class="tab-screen">
           <div class="shop-wrapper">
-            <div class="shop-card">
-              <div class="shop-title">Обменник</div>
+            <div class="card">
+              <div class="card-title">Обменник</div>
               <div class="exchange-row">
-                <input id="rubyToStarInput" class="input" type="number" min="0" placeholder="Сколько рубинов обменять" />
-                <button id="btnRubyToStar" class="btn secondary">⟲ в ⭐</button>
+                <input id="exRubiesAmount" class="input" type="number" min="1" placeholder="Сколько звёзд получить" />
+                <button id="btnExR2S" class="btn secondary">Рубины → ⭐</button>
               </div>
               <div class="exchange-row">
-                <input id="starToRubyInput" class="input" type="number" min="0" placeholder="Сколько звёзд обменять" />
-                <button id="btnStarToRuby" class="btn secondary">⟲ в 💎</button>
+                <input id="exStarsAmount" class="input" type="number" min="1" placeholder="Сколько звёзд отдать" />
+                <button id="btnExS2R" class="btn secondary">⭐ → Рубины</button>
               </div>
+              <div class="hint" id="exRatesHint">Курс по умолчанию: 100 рубинов = 1 ⭐</div>
             </div>
 
-            <div class="shop-card">
-              <div class="shop-title">Покупка звёзд</div>
-              <button id="btnBuyStarsWithTg" class="btn primary">Купить звёзды за Telegram Stars</button>
-              <div class="shop-note">Требуется настройка платежей у бота</div>
+            <div class="card">
+              <div class="card-title">Пополнение ⭐ через Telegram Stars</div>
+              <div class="exchange-row">
+                <input id="buyStarsAmount" class="input" type="number" min="1" placeholder="Сколько ⭐ купить" />
+                <button id="btnBuyStars" class="btn primary">Пополнить</button>
+              </div>
+              <div class="hint">Оплата через встроенный платеж Telegram. Комиссии нет.</div>
             </div>
 
-            <div class="shop-card">
-              <div class="shop-title">Предметы</div>
-              <div class="shop-items">
-                <button id="btnBuyRefBoost" class="btn secondary">Буст реферала (+20% к +12ч) — 200⭐</button>
-                <button id="btnBuyEternal" class="btn secondary">Вечный факел — 750⭐</button>
+            <div class="card">
+              <div class="card-title">Предметы</div>
+              <div class="items-grid">
+                <button id="btnRefBonus" class="btn secondary">Бонус к рефералам +20% — 200⭐</button>
+                <button id="btnEternal" class="btn secondary">Вечный факел — 750⭐</button>
               </div>
             </div>
           </div>
@@ -132,7 +136,7 @@
         <div class="slider">
           <div class="slide active">
             <img src="https://i.imgur.com/bNSgBYl.png" class="slide-image" alt="screen1" />
-            <div class="slide-text">Вы очнулись в тёмной пещере 🕯️ Ваш ��динственный свет — это факел.</div>
+            <div class="slide-text">Вы очнулись в тёмной пещере 🕯️ Ваш единственный свет — э��о факел.</div>
           </div>
           <div class="slide">
             <img src="https://i.imgur.com/bNSgBYl.png" class="slide-image" alt="screen2" />
