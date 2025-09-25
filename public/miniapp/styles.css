@@ -7,6 +7,7 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, Bl
 .balances { display: flex; flex-direction: column; gap: 4px; }
 .balance-row { display: flex; align-items: center; gap: 6px; font-weight: 600; }
 .balance-icon { font-size: 16px; }
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
 
 .content-area { flex: 1; overflow: auto; }
 .tab-screen { display: none; padding: 16px; }
@@ -70,7 +71,7 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, Bl
 .mine-block { display: grid; place-items: center; padding: 10px; }
 .block-view { width: 260px; height: 260px; border-radius: 14px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,0.12); background: #111827; position: relative; overflow: hidden; cursor: pointer; }
 .block-label { font-weight: 800; text-align: center; }
-.hits-label { position: absolute; bottom: 8px; right: 10px; font-weight: 800; font-size: 12px; opacity: 0.9; }
+.hits-label { position: absolute; bottom: 8px; right: 10px; font-weight: 800; font-size: 13px; opacity: 0.95; background: rgba(0,0,0,0.35); padding: 4px 8px; border-radius: 8px; }
 .block-wood { background: linear-gradient(180deg,#8b5a2b,#5d3b17); }
 .block-stone { background: linear-gradient(180deg,#7a7a7a,#4a4a4a); }
 .block-gold { background: linear-gradient(180deg,#ffd54f,#ffc107); }
@@ -79,15 +80,28 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, Bl
 .block-hit { animation: blockHit 200ms ease; }
 @keyframes blockHit { 0% { transform: translateX(0); } 25% { transform: translateX(-4px); } 50% { transform: translateX(4px); } 75% { transform: translateX(-2px); } 100% { transform: translateX(0); } }
 
-.reward { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); pointer-events: none; }
-.reward-fly { animation: rewardFly 1.4s ease-in forwards; }
-@keyframes rewardFly { 0% { transform: translate(-50%,-50%) scale(0.8); opacity: 0; }
-  20% { transform: translate(-50%,-70%) scale(1); opacity: 1; }
-  60% { transform: translate(-50%,0%) scale(1); opacity: 1; }
-  100% { transform: translate(-50%,180%) scale(0.9); opacity: 0; } }
+.reward { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); pointer-events: none; filter: drop-shadow(0 4px 18px rgba(255,215,0,0.6)); }
+.reward-fly { animation: rewardFly 1.6s ease-in forwards; }
+@keyframes rewardFly { 0% { transform: translate(-50%,-50%) scale(0.6); opacity: 0; }
+  20% { transform: translate(-50%,-74%) scale(1); opacity: 1; }
+  60% { transform: translate(-50%,10%) scale(1.05); opacity: 1; }
+  100% { transform: translate(-50%,190%) scale(0.9); opacity: 0; } }
+.reward-star { font-weight: 900; font-size: 22px; padding: 8px 12px; border-radius: 12px; background: radial-gradient(circle at 30% 30%, #fff59d, #facc15); color: #000; }
+
+/* Inventory */
+.inventory-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 12px; max-height: 60vh; overflow: auto; }
+.inventory-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px; display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 10px; }
+.inventory-thumb { width: 56px; height: 56px; object-fit: contain; border-radius: 8px; background: #222; }
+.inventory-name { font-weight: 700; }
+.inventory-count { font-weight: 800; }
+
+/* Toast */
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 86px; background: rgba(17,24,39,0.95); border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 10px 14px; font-weight: 800; z-index: 30; }
+.toast.hidden { display: none; }
+.toast.error { background: rgba(153,27,27,0.95); }
 
 .mine-actions { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .mine-result { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px; }
 .hidden { display: none; }
 
-@media (max-width: 480px) { .slide-image { max-width: 92%; max-height: 56%; } .pickaxes { grid-template-columns: 1fr; } }
+@media (max-width: 480px) { .slide-image { max-width: 92%; max-height: 56%; } .pickaxes { grid-template-columns: 1fr; } .inventory-list { grid-template-columns: 1fr; } }

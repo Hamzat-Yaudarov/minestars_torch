@@ -15,6 +15,7 @@
     mineTab: 'mine',
     selectedPickaxe: null,
     blocks: { stone: { type: null, left: 0 }, diamond: { type: null, left: 0 } },
+    nfts: [],
   };
 
   const els = {
@@ -35,6 +36,9 @@
     leadersList: document.getElementById('leadersList'),
     closeLeaders: document.getElementById('closeLeaders'),
 
+    // header actions
+    btnInventory: document.getElementById('btnInventory'),
+
     // mine
     mineTabBtns: Array.from(document.querySelectorAll('.mine-tab-btn')),
     minePanel: document.getElementById('mine-panel'),
@@ -49,21 +53,25 @@
     hitsLabel: document.getElementById('hitsLabel'),
     mineResult: document.getElementById('mineResult'),
     mineLeadersList: document.getElementById('mineLeadersList'),
+
+    // inventory modal
+    inventoryModal: document.getElementById('inventoryModal'),
+    inventoryList: document.getElementById('inventoryList'),
+    closeInventory: document.getElementById('closeInventory'),
+
+    // toast
+    toast: document.getElementById('toast'),
   };
 
-  // simple sounds using WebAudio
-  const audio = { ctx: null };
-  function beep(freq=440, dur=80, type='square', vol=0.03) {
-    try {
-      if (!audio.ctx) audio.ctx = new (window.AudioContext||window.webkitAudioContext)();
-      const ctx = audio.ctx;
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = type; o.frequency.value = freq; g.gain.value = vol;
-      o.connect(g); g.connect(ctx.destination);
-      o.start(); setTimeout(()=>{ o.stop(); }, dur);
-    } catch {}
-  }
+  // Sounds
+  const sfx = {
+    purchase: new Audio('./muzik/purchase.mp3'),
+    hit: new Audio('./muzik/hit.mp3'),
+    reward: new Audio('./muzik/reward.mp3'),
+    click: new Audio('./muzik/click.mp3'),
+  };
+  Object.values(sfx).forEach(a => { a.volume = 0.3; });
+  function play(a){ try { a.currentTime = 0; a.play(); } catch {} }
 
   function setActiveTab(name){
     els.tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
@@ -136,6 +144,26 @@
     }).join('');
   }
 
+  // Inventory
+  const nftImgs = { 'Snoop Dogg':'https://i.imgur.com/26Al3Dv.png','Swag Bag':'https://i.imgur.com/UV9BFMQ.png','Easter Egg':'https://i.imgur.com/Afvazp4.png','Snoop Cigar':'https://i.imgur.com/VLaneJA.png','Low Rider':'https://i.imgur.com/TWhlyos.png' };
+  async function loadInventory(){
+    if (!state.user) return;
+    const rows = await fetchJSON(`/api/nfts?user_id=${state.user.tg_id}`);
+    state.nfts = rows;
+    renderInventory();
+  }
+  function renderInventory(){
+    els.inventoryList.innerHTML = state.nfts.length ? state.nfts.map(n => `
+      <div class="inventory-card">
+        <img class="inventory-thumb" src="${nftImgs[n.name]||''}" alt="${n.name}" />
+        <div class="inventory-name">${n.name}</div>
+        <div class="inventory-count">x${n.count}</div>
+      </div>
+    `).join('') : '<div style="padding:16px;opacity:.8;">Пусто</div>';
+  }
+  function openInventory(){ els.inventoryModal.classList.remove('hidden'); play(sfx.click); loadInventory(); }
+  function closeInventory(){ els.inventoryModal.classList.add('hidden'); play(sfx.click); }
+
   // Mine
   function setMineSub(tab){
     state.mineTab = tab;
@@ -177,56 +205,77 @@
   }
 
   async function claimDaily(){
-    if (!state.user) return; beep(600,80,'square');
+    if (!state.user) return; play(sfx.click);
     const r = await fetchJSON('/api/mine/daily-claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
-    if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); }
+    if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); showToast(`+${r.granted} каменных кирок`); }
   }
 
   async function buyDiamond(){
-    if (!state.user) return; beep(320,100,'sawtooth');
-    const r = await fetchJSON('/api/mine/purchase-dpick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
-    state.diamond = Number(r.diamond_pickaxes||state.diamond);
-    state.stars = Number(r.stars||state.stars);
-    els.diamondCount.textContent = String(state.diamond);
-    updateBalancesUI();
+    if (!state.user) return; play(sfx.click);
+    try {
+      const r = await fetchJSON('/api/mine/purchase-dpick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
+      state.diamond = Number(r.diamond_pickaxes||state.diamond);
+      state.stars = Number(r.stars||state.stars);
+      els.diamondCount.textContent = String(state.diamond);
+      updateBalancesUI();
+      showToast('Куплено: Алмазная кирка (+1)');
+      play(sfx.purchase);
+    } catch (e) {
+      showToast('Не хватает ⭐', true);
+    }
   }
 
   function spawnReward(reward){
-    const el = document.createElement('div');
-    el.className = 'reward reward-fly';
-    const nftImg = nftToImg(reward && reward.nft);
-    if (nftImg) {
-      el.innerHTML = `<img src="${nftImg}" alt="nft" style="width:80px;height:80px;object-fit:contain;border-radius:12px;"/>`;
-    } else {
-      el.textContent = `+⭐ ${reward ? reward.starsEarned : ''}`;
-      el.style.fontWeight = '800';
-      el.style.fontSize = '18px';
+    if (!reward) return;
+    const star = document.createElement('div');
+    star.className = 'reward reward-star reward-fly';
+    star.textContent = `+⭐ ${reward.starsEarned}`;
+
+    els.blockView.appendChild(star);
+    setTimeout(()=>{ star.remove(); }, 1700);
+
+    if (reward.nft) {
+      const nft = document.createElement('div');
+      nft.className = 'reward reward-fly';
+      nft.innerHTML = `<img src="${nftImgs[reward.nft]||''}" alt="nft" style="width:92px;height:92px;object-fit:contain;border-radius:12px;"/>`;
+      els.blockView.appendChild(nft);
+      setTimeout(()=>{ nft.remove(); }, 1700);
+      // optimistic update inventory
+      const found = state.nfts.find(x => x.name === reward.nft);
+      if (found) found.count += 1; else state.nfts.push({ name: reward.nft, count: 1 });
+      renderInventory();
+      play(sfx.reward);
     }
-    els.blockView.appendChild(el);
-    setTimeout(()=>{ el.remove(); }, 1500);
   }
 
   async function hitBlock(){
     if (!state.user || !state.selectedPickaxe) return;
     els.blockView.classList.add('block-hit'); setTimeout(()=>els.blockView.classList.remove('block-hit'), 220);
-    beep(120,60,'square',0.02);
-    const r = await fetchJSON('/api/mine/hit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, pickaxe: state.selectedPickaxe }) });
-    state.stone = Number(r.stone_pickaxes||state.stone);
-    state.diamond = Number(r.diamond_pickaxes||state.diamond);
-    state.stars = Number(r.stars||state.stars);
-    els.stoneCount.textContent = String(state.stone);
-    els.diamondCount.textContent = String(state.diamond);
-    updateBalancesUI();
+    play(sfx.hit);
+    try {
+      const r = await fetchJSON('/api/mine/hit', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, pickaxe: state.selectedPickaxe }) });
+      state.stone = Number(r.stone_pickaxes||state.stone);
+      state.diamond = Number(r.diamond_pickaxes||state.diamond);
+      state.stars = Number(r.stars||state.stars);
+      els.stoneCount.textContent = String(state.stone);
+      els.diamondCount.textContent = String(state.diamond);
+      updateBalancesUI();
 
-    // update block state for current pickaxe
-    state.blocks[state.selectedPickaxe] = { type: r.block, left: r.left };
-    renderBlock(r.block, r.left);
+      state.blocks[state.selectedPickaxe] = { type: r.block, left: r.left };
+      renderBlock(r.block, r.left);
 
-    if (r.reward && r.reward.completed) { beep(880,120,'triangle',0.04); spawnReward(r.reward); }
+      if (r.reward && r.reward.completed) { spawnReward(r.reward); }
+    } catch {}
   }
 
-  function labelBlock(b){ return {wood:'Деревянный',stone:'Каменный',gold:'Золотой',diamond:'Алмазный'}[b] || ''; }
-  function nftToImg(n){ if (!n) return ''; const map={ 'Snoop Dogg':'https://i.imgur.com/26Al3Dv.png','Swag Bag':'https://i.imgur.com/UV9BFMQ.png','Easter Egg':'https://i.imgur.com/Afvazp4.png','Snoop Cigar':'https://i.imgur.com/VLaneJA.png','Low Rider':'https://i.imgur.com/TWhlyos.png' }; return map[n] || ''; }
+  function showToast(text, error){
+    els.toast.textContent = text;
+    els.toast.classList.toggle('error', !!error);
+    els.toast.classList.remove('hidden');
+    setTimeout(()=> els.toast.classList.add('hidden'), 1400);
+  }
+
+  function nftToImg(n){ if (!n) return ''; return nftImgs[n] || ''; }
 
   async function loadMineLeaders(){
     const rows = await fetchJSON('/api/mine/leaderboard');
@@ -238,16 +287,19 @@
   }
 
   function bindEvents(){
-    els.tabButtons.forEach(btn => btn.addEventListener('click', () => setActiveTab(btn.dataset.tab)));
-    els.nextSlide.addEventListener('click', async () => { if (state.sliderIndex < 2) setSlide(state.sliderIndex + 1); else { showOnboarding(false); await setOnboardingDone(); } });
-    els.prevSlide.addEventListener('click', () => setSlide(state.sliderIndex - 1));
+    els.tabButtons.forEach(btn => btn.addEventListener('click', () => { play(sfx.click); setActiveTab(btn.dataset.tab); }));
+    els.nextSlide.addEventListener('click', async () => { play(sfx.click); if (state.sliderIndex < 2) setSlide(state.sliderIndex + 1); else { showOnboarding(false); await setOnboardingDone(); } });
+    els.prevSlide.addEventListener('click', () => { play(sfx.click); setSlide(state.sliderIndex - 1); });
 
-    els.btnTasks.addEventListener('click', () => setActiveTab('tasks'));
-    els.btnLeaders.addEventListener('click', async () => { await loadLeaders(); els.leadersModal.classList.remove('hidden'); });
-    els.closeLeaders.addEventListener('click', () => els.leadersModal.classList.add('hidden'));
+    els.btnTasks.addEventListener('click', () => { play(sfx.click); setActiveTab('tasks'); });
+    els.btnLeaders.addEventListener('click', async () => { play(sfx.click); await loadLeaders(); els.leadersModal.classList.remove('hidden'); });
+    els.closeLeaders.addEventListener('click', () => { play(sfx.click); els.leadersModal.classList.add('hidden'); });
 
-    els.mineTabBtns.forEach(b => b.addEventListener('click', () => setMineSub(b.dataset.mtab)));
-    els.pickCards.forEach(card => card.addEventListener('click', () => { beep(220,60,'square',0.02); setPickaxe(card.dataset.pickaxe); }));
+    els.btnInventory.addEventListener('click', openInventory);
+    els.closeInventory.addEventListener('click', closeInventory);
+
+    els.mineTabBtns.forEach(b => b.addEventListener('click', () => { play(sfx.click); setMineSub(b.dataset.mtab); }));
+    els.pickCards.forEach(card => card.addEventListener('click', () => { play(sfx.click); setPickaxe(card.dataset.pickaxe); }));
     els.btnDaily.addEventListener('click', claimDaily);
     els.btnBuyDiamond.addEventListener('click', buyDiamond);
     els.blockView.addEventListener('click', hitBlock);

@@ -17,6 +17,9 @@
             <div class="balance-row"><span class="balance-icon">⭐️</span><span id="stars">0</span></div>
           </div>
         </div>
+        <div class="topbar-actions">
+          <button id="btnInventory" class="btn secondary">Инвентарь</button>
+        </div>
       </header>
 
       <main id="content" class="content-area">
@@ -131,6 +134,18 @@
           <div id="leadersList" class="leaders-list"></div>
         </div>
       </div>
+
+      <div id="inventoryModal" class="modal hidden">
+        <div class="modal-content">
+          <div class="modal-header">
+            <div class="modal-title">Инвентарь NFT</div>
+            <button id="closeInventory" class="btn ghost">Закрыть</button>
+          </div>
+          <div id="inventoryList" class="inventory-list"></div>
+        </div>
+      </div>
+
+      <div id="toast" class="toast hidden"></div>
     </div>
 
     <script src="./app.js"></script>

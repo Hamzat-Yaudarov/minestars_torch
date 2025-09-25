@@ -14,6 +14,7 @@ const {
   purchaseDiamondPick,
   mineState,
   mineHit,
+  getUserNFTs,
   mineLeaders,
 } = require('./db');
 
@@ -129,6 +130,16 @@ app.post('/api/mine/hit', async (req, res) => {
 app.get('/api/mine/leaderboard', async (_req, res) => {
   try {
     const rows = await mineLeaders(100);
+    res.json(rows);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+// NFT Inventory
+app.get('/api/nfts', async (req, res) => {
+  try {
+    const tg_id = Number(req.query.user_id);
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const rows = await getUserNFTs(tg_id);
     res.json(rows);
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
