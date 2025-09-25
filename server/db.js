@@ -65,7 +65,12 @@ async function upsertUser({ tg_id, username, first_name, last_name, photo_url })
      returning *`,
     [tg_id, username || null, first_name || null, last_name || null, photo_url || null]
   );
-  return res.rows[0];
+  const u = res.rows[0];
+  if (!u.torch_started_at) {
+    const fixed = await initTorchIfMissing(tg_id);
+    return fixed || u;
+  }
+  return u;
 }
 
 async function getUser(tg_id) {
@@ -77,6 +82,18 @@ async function setOnboardingSeen(tg_id) {
   const res = await pool.query(
     'update users set onboarding_seen = true, updated_at = now() where tg_id = $1 returning *',
     [tg_id]
+  );
+  return res.rows[0] || null;
+}
+
+async function initTorchIfMissing(tg_id) {
+  const wk = await pool.query("select (date_trunc('week', now()))::date as wk");
+  const currentWeek = wk.rows[0].wk;
+  const res = await pool.query(
+    `update users set torch_on = true, torch_started_at = now(), extinguish_count_week = 0, extinguish_week_start = $2, updated_at = now()
+     where tg_id = $1 and torch_started_at is null
+     returning *`,
+    [tg_id, currentWeek]
   );
   return res.rows[0] || null;
 }
