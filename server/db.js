@@ -1,21 +1,9 @@
 const { Pool } = require('pg');
 
-let connectionString = process.env.NEON_DATABASE_URL;
+const connectionString = process.env.NEON_DATABASE_URL;
 if (!connectionString) {
   console.warn('NEON_DATABASE_URL is not set');
 }
-
-function sanitizeConn(cs){
-  if (!cs) return cs;
-  try {
-    const u = new URL(cs);
-    u.searchParams.delete('channel_binding');
-    return u.toString();
-  } catch {
-    return cs.replace(/([?&])channel_binding=[^&]*/g, '$1').replace(/[?&]$/, '');
-  }
-}
-connectionString = sanitizeConn(connectionString);
 
 const pool = new Pool({ connectionString });
 
@@ -34,8 +22,6 @@ async function ensureSchema() {
       created_at timestamptz default now() not null,
       updated_at timestamptz default now() not null
     );
-
-    -- mining-related
     alter table users add column if not exists stone_pickaxes integer default 0 not null;
     alter table users add column if not exists diamond_pickaxes integer default 0 not null;
     alter table users add column if not exists stars_earned_mine bigint default 0 not null;
@@ -48,15 +34,22 @@ async function ensureSchema() {
     alter table users add column if not exists diamond_hits_required integer;
     alter table users add column if not exists diamond_hits_done integer;
 
-    -- torch system
-    alter table users add column if not exists torch_expires_at timestamptz default (now() + interval '24 hours') not null;
-    alter table users add column if not exists torch_week_start date;
-    alter table users add column if not exists torch_extinguishes_week integer default 0 not null;
-    alter table users add column if not exists eternal_flame boolean default false not null;
-    alter table users add column if not exists referral_bonus_multiplier numeric(6,3) default 1.000 not null;
+    -- Torch lifecycle and penalties
+    alter table users add column if not exists torch_expires_at timestamptz default (now() + interval '24 hours');
+    alter table users add column if not exists torch_week_start date default current_date;
+    alter table users add column if not exists torch_week_out_count integer default 0 not null;
+    alter table users add column if not exists ruby_frac numeric default 0 not null;
 
     create index if not exists users_rubies_idx on users (rubies desc);
     create index if not exists users_mine_stars_idx on users (stars_earned_mine desc);
+
+    create table if not exists user_nfts (
+      id bigserial primary key,
+      tg_id bigint not null,
+      name text not null,
+      obtained_at timestamptz default now() not null
+    );
+    create index if not exists user_nfts_tg_idx on user_nfts (tg_id);
   `);
 }
 
@@ -69,6 +62,9 @@ async function upsertUser({ tg_id, username, first_name, last_name, photo_url })
        first_name = excluded.first_name,
        last_name = excluded.last_name,
        photo_url = excluded.photo_url,
+       -- keep existing torch fields; ensure defaults filled for legacy users
+       torch_expires_at = coalesce(users.torch_expires_at, users.created_at + interval '24 hours'),
+       torch_week_start = coalesce(users.torch_week_start, current_date),
        updated_at = now()
      returning *`,
     [tg_id, username || null, first_name || null, last_name || null, photo_url || null]
@@ -76,90 +72,7 @@ async function upsertUser({ tg_id, username, first_name, last_name, photo_url })
   return res.rows[0];
 }
 
-function mondayStart(d = new Date()) {
-  const dt = new Date(d);
-  const day = dt.getUTCDay(); // 0..6 (Sun..Sat)
-  const diff = (day === 0 ? -6 : 1) - day; // days to Monday
-  dt.setUTCDate(dt.getUTCDate() + diff);
-  dt.setUTCHours(0, 0, 0, 0);
-  return dt;
-}
-
-async function ensureTorchState(tg_id) {
-  const client = await pool.connect();
-  try {
-    await client.query('begin');
-    const r = await client.query(
-      'select rubies, torch_on, torch_expires_at, torch_week_start, torch_extinguishes_week, eternal_flame from users where tg_id = $1 for update',
-      [tg_id]
-    );
-    if (!r.rows.length) { await client.query('rollback'); return null; }
-    const u = r.rows[0];
-    const now = new Date();
-    const weekStart = mondayStart(now);
-    const weekStartStr = weekStart.toISOString().slice(0, 10);
-
-    let changed = false;
-    let torch_on = !!u.torch_on;
-    let rubies = Number(u.rubies) || 0;
-    let extinguishes = Number(u.torch_extinguishes_week) || 0;
-
-    // initialize 24h torch if missing
-    if (!u.torch_expires_at) {
-      const init = await client.query(
-        "update users set torch_on = true, torch_expires_at = now() + interval '24 hours', torch_week_start = coalesce(torch_week_start, $2), updated_at = now() where tg_id = $1 returning torch_expires_at",
-        [tg_id, weekStartStr]
-      );
-      await client.query('commit');
-      return { torch_on: true, torch_expires_at: init.rows[0].torch_expires_at, eternal_flame: !!u.eternal_flame };
-    }
-
-    // reset weekly counter if week changed
-    const storedWeek = u.torch_week_start ? new Date(u.torch_week_start) : null;
-    if (!storedWeek || storedWeek.toISOString().slice(0,10) !== weekStartStr) {
-      extinguishes = 0;
-      changed = true;
-    }
-
-    if (u.eternal_flame) {
-      if (!torch_on) { torch_on = true; changed = true; }
-      if (changed) {
-        await client.query(
-          'update users set torch_on = $2, torch_week_start = $3, torch_extinguishes_week = $4, updated_at = now() where tg_id = $1',
-          [tg_id, torch_on, weekStartStr, extinguishes]
-        );
-      }
-      await client.query('commit');
-      return { torch_on: true, torch_expires_at: u.torch_expires_at, eternal_flame: true };
-    }
-
-    const expired = u.torch_expires_at && new Date(u.torch_expires_at).getTime() <= now.getTime();
-    if (torch_on && expired) {
-      if (extinguishes <= 0) { rubies = Math.floor(rubies * 0.5); extinguishes = 1; }
-      else { rubies = 0; extinguishes = Math.min(2, extinguishes + 1); }
-      torch_on = false;
-      changed = true;
-    }
-
-    if (changed) {
-      await client.query(
-        'update users set rubies = $2, torch_on = $3, torch_week_start = $4, torch_extinguishes_week = $5, updated_at = now() where tg_id = $1',
-        [tg_id, rubies, torch_on, weekStartStr, extinguishes]
-      );
-    } else if (!u.torch_week_start) {
-      await client.query('update users set torch_week_start = $2 where tg_id = $1', [tg_id, weekStartStr]);
-    }
-
-    await client.query('commit');
-    return { torch_on, torch_expires_at: u.torch_expires_at, eternal_flame: false };
-  } catch (e) {
-    await client.query('rollback');
-    throw e;
-  } finally { client.release(); }
-}
-
 async function getUser(tg_id) {
-  await ensureTorchState(tg_id);
   const res = await pool.query('select * from users where tg_id = $1', [tg_id]);
   return res.rows[0] || null;
 }
@@ -173,15 +86,60 @@ async function setOnboardingSeen(tg_id) {
 }
 
 async function tickRuby(tg_id) {
-  await ensureTorchState(tg_id);
-  const res = await pool.query(
-    `update users
-     set rubies = rubies + (case when (eternal_flame = true or (torch_on = true and now() <= torch_expires_at)) then 1 else 0 end), updated_at = now()
-     where tg_id = $1
-     returning rubies, stars, torch_on, torch_expires_at, eternal_flame` ,
-    [tg_id]
-  );
-  return res.rows[0] || { rubies: 0, stars: 0, torch_on: false };
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    // lock and possibly reset the weekly window
+    let { rows } = await client.query(
+      `select tg_id, rubies, stars, torch_on, torch_expires_at, torch_week_start, torch_week_out_count, ruby_frac
+       from users where tg_id = $1 for update`, [tg_id]
+    );
+    if (!rows.length) throw new Error('not_found');
+    let u = rows[0];
+
+    // reset weekly counters if 7 days passed
+    const needReset = !u.torch_week_start || new Date(u.torch_week_start) <= new Date(Date.now() - 7*24*60*60*1000);
+    if (needReset) {
+      ({ rows } = await client.query(
+        `update users set torch_week_start = current_date, torch_week_out_count = 0 where tg_id = $1 returning *`, [tg_id]
+      ));
+      u = rows[0];
+    }
+
+    // if torch expired now, switch off and count an extinguish event once
+    if (u.torch_on && u.torch_expires_at && new Date(u.torch_expires_at) <= new Date()) {
+      ({ rows } = await client.query(
+        `update users
+         set torch_on = false,
+             torch_week_out_count = torch_week_out_count + 1,
+             updated_at = now()
+         where tg_id = $1 returning *`, [tg_id]
+      ));
+      u = rows[0];
+    }
+
+    // compute earning rate
+    let rate = 0;
+    if (u.torch_on) rate = 1.0; else if (u.torch_week_out_count >= 2) rate = 0.0; else if (u.torch_week_out_count >= 1) rate = 0.5; else rate = 0.0;
+
+    const newFrac = Number(u.ruby_frac || 0) + rate;
+    const add = Math.floor(newFrac);
+    const rem = newFrac - add;
+
+    ({ rows } = await client.query(
+      `update users set rubies = rubies + $2, ruby_frac = $3, updated_at = now() where tg_id = $1
+       returning rubies, stars, torch_on, torch_expires_at, torch_week_out_count`,
+      [tg_id, add, rem]
+    ));
+
+    await client.query('commit');
+    return rows[0] || { rubies: 0, stars: 0, torch_on: false };
+  } catch (e) {
+    await client.query('rollback');
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
 async function topLeaders(limit = 100) {
@@ -295,33 +253,10 @@ async function purchaseDiamondPick(tg_id) {
   } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
 }
 
-async function addStars(tg_id, amount) {
-  const res = await pool.query('update users set stars = stars + $2, updated_at = now() where tg_id = $1 returning stars', [tg_id, Number(amount)||0]);
-  return res.rows[0];
-}
-
 async function creditReferral(tg_id, count = 1) {
-  const client = await pool.connect();
-  try {
-    await client.query('begin');
-    const ures = await client.query('select referral_bonus_multiplier, eternal_flame, torch_expires_at from users where tg_id = $1 for update', [tg_id]);
-    if (!ures.rows.length) throw new Error('not_found');
-    const u = ures.rows[0];
-    const baseHours = 12;
-    const mult = Number(u.referral_bonus_multiplier) || 1;
-    const addHours = baseHours * mult * (Number(count)||1);
-    const upd = await client.query(
-      `update users
-       set referral_count = referral_count + $2,
-           stone_pickaxes = stone_pickaxes + $3,
-           torch_expires_at = case when eternal_flame then torch_expires_at else greatest(torch_expires_at, now()) + ($4 || ' hours')::interval end,
-           updated_at = now()
-       where tg_id = $1 returning *`,
-      [tg_id, count, 2 * count, addHours]
-    );
-    await client.query('commit');
-    return upd.rows[0];
-  } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
+  const picks = 2 * count;
+  const res = await pool.query('update users set referral_count = referral_count + $2, stone_pickaxes = stone_pickaxes + $3, updated_at = now() where tg_id = $1 returning *', [tg_id, count, picks]);
+  return res.rows[0];
 }
 
 async function mineState(tg_id) {
@@ -414,67 +349,9 @@ async function getUserNfts(tg_id) {
   return res.rows;
 }
 
-// Shop & exchange
-async function exchangeRubiesToStars(tg_id, amount) {
-  const amt = Math.max(0, Math.floor(Number(amount)||0));
-  if (amt <= 0) return { error: 'invalid_amount' };
-  const client = await pool.connect();
-  try {
-    await client.query('begin');
-    const r = await client.query('select rubies, stars from users where tg_id = $1 for update', [tg_id]);
-    if (!r.rows.length) throw new Error('not_found');
-    const u = r.rows[0];
-    if (Number(u.rubies) < amt) { await client.query('rollback'); return { error: 'not_enough_rubies' }; }
-    const upd = await client.query('update users set rubies = rubies - $2, stars = stars + $2, updated_at = now() where tg_id = $1 returning rubies, stars', [tg_id, amt]);
-    await client.query('commit');
-    return upd.rows[0];
-  } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
-}
-
-async function exchangeStarsToRubies(tg_id, amount) {
-  const amt = Math.max(0, Math.floor(Number(amount)||0));
-  if (amt <= 0) return { error: 'invalid_amount' };
-  const client = await pool.connect();
-  try {
-    await client.query('begin');
-    const r = await client.query('select rubies, stars from users where tg_id = $1 for update', [tg_id]);
-    if (!r.rows.length) throw new Error('not_found');
-    const u = r.rows[0];
-    if (Number(u.stars) < amt) { await client.query('rollback'); return { error: 'not_enough_stars' }; }
-    const upd = await client.query('update users set stars = stars - $2, rubies = rubies + $2, updated_at = now() where tg_id = $1 returning rubies, stars', [tg_id, amt]);
-    await client.query('commit');
-    return upd.rows[0];
-  } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
-}
-
-async function buyReferralBoost(tg_id) {
-  const cost = 200;
-  const client = await pool.connect();
-  try {
-    await client.query('begin');
-    const r = await client.query('select stars, referral_bonus_multiplier from users where tg_id = $1 for update', [tg_id]);
-    if (!r.rows.length) throw new Error('not_found');
-    if (Number(r.rows[0].stars) < cost) { await client.query('rollback'); return { error: 'not_enough_stars' }; }
-    const newMult = Number(r.rows[0].referral_bonus_multiplier || 1) + 0.2;
-    const upd = await client.query('update users set stars = stars - $2, referral_bonus_multiplier = $3, updated_at = now() where tg_id = $1 returning stars, referral_bonus_multiplier', [tg_id, cost, newMult]);
-    await client.query('commit');
-    return upd.rows[0];
-  } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
-}
-
-async function buyEternalFlame(tg_id) {
-  const cost = 750;
-  const client = await pool.connect();
-  try {
-    await client.query('begin');
-    const r = await client.query('select stars, eternal_flame from users where tg_id = $1 for update', [tg_id]);
-    if (!r.rows.length) throw new Error('not_found');
-    if (r.rows[0].eternal_flame === true) { await client.query('rollback'); return { error: 'already_owned' }; }
-    if (Number(r.rows[0].stars) < cost) { await client.query('rollback'); return { error: 'not_enough_stars' }; }
-    const upd = await client.query('update users set stars = stars - $2, eternal_flame = true, torch_on = true, updated_at = now() where tg_id = $1 returning stars, eternal_flame, torch_on', [tg_id, cost]);
-    await client.query('commit');
-    return upd.rows[0];
-  } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
+async function getTorchInfo(tg_id) {
+  const res = await pool.query('select torch_on, torch_expires_at, torch_week_start, torch_week_out_count from users where tg_id = $1', [tg_id]);
+  return res.rows[0] || null;
 }
 
 module.exports = {
@@ -487,15 +364,10 @@ module.exports = {
   topLeaders,
   grantDailyPicks,
   purchaseDiamondPick,
-  addStars,
   creditReferral,
   mineState,
   mineHit,
   mineLeaders,
   getUserNfts,
-  ensureTorchState,
-  exchangeRubiesToStars,
-  exchangeStarsToRubies,
-  buyReferralBoost,
-  buyEternalFlame,
+  getTorchInfo,
 };
