@@ -19,21 +19,16 @@ async function ensureSchema() {
       stars bigint default 0 not null,
       torch_on boolean default true not null,
       onboarding_seen boolean default false not null,
-      stone_pickaxes integer default 0 not null,
-      diamond_pickaxes integer default 0 not null,
-      stars_earned_mine bigint default 0 not null,
-      referral_count integer default 0 not null,
-      last_daily_login date,
       created_at timestamptz default now() not null,
       updated_at timestamptz default now() not null
     );
-    create index if not exists users_rubies_idx on users (rubies desc);
-    create index if not exists users_mine_stars_idx on users (stars_earned_mine desc);
     alter table users add column if not exists stone_pickaxes integer default 0 not null;
     alter table users add column if not exists diamond_pickaxes integer default 0 not null;
     alter table users add column if not exists stars_earned_mine bigint default 0 not null;
     alter table users add column if not exists referral_count integer default 0 not null;
     alter table users add column if not exists last_daily_login date;
+    create index if not exists users_rubies_idx on users (rubies desc);
+    create index if not exists users_mine_stars_idx on users (stars_earned_mine desc);
   `);
 }
 
