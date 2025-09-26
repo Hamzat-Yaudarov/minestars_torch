@@ -232,6 +232,23 @@ app.get('/api/mine/leaderboard', async (_req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
 
+// History API
+app.get('/api/history', async (req, res) => {
+  try {
+    const tg_id = Number(req.query.user_id);
+    const type = String(req.query.type || 'all');
+    const limit = Math.max(1, Math.min(200, Number(req.query.limit || 50)));
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const { pool } = require('./db');
+    let q = 'select type, payload, created_at from history where tg_id = $1';
+    const args = [tg_id];
+    if (type !== 'all') { q += ' and type = $2'; args.push(type); }
+    q += ' order by created_at desc limit ' + limit;
+    const rows = await pool.query(q, args);
+    res.json(rows.rows);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
 // Telegram bot webhook
 let bot = null;
 if (BOT_TOKEN) {
@@ -275,6 +292,7 @@ if (BOT_TOKEN) {
         if (userId && amount > 0) {
           const { pool } = require('./db');
           await pool.query('update users set stars = stars + $2, updated_at = now() where tg_id = $1', [userId, amount]);
+          try { await pool.query('insert into history (tg_id, type, payload) values ($1,$2,$3)', [userId, 'topup', { provider: 'telegram_stars', amount }]); } catch {}
           await ctx.reply(`Зачислено: +${amount}⭐ Спасибо за покупку!`);
         }
       }

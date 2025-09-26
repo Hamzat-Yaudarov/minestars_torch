@@ -59,6 +59,16 @@ async function ensureSchema() {
       obtained_at timestamptz default now() not null
     );
     create index if not exists user_nfts_tg_idx on user_nfts (tg_id);
+
+    create table if not exists history (
+      id bigserial primary key,
+      tg_id bigint not null,
+      type text not null, -- 'mine' | 'exchange' | 'topup' | 'withdraw'
+      payload jsonb not null default '{}',
+      created_at timestamptz default now() not null
+    );
+    create index if not exists history_tg_idx on history (tg_id, created_at desc);
+    create index if not exists history_type_idx on history (type);
   `);
 }
 
@@ -206,20 +216,8 @@ async function tickRuby(tg_id) {
     await client.query('begin');
     const state = await ensureTorchState(tg_id, client);
     if (!state) { await client.query('rollback'); return { rubies: 0, stars: 0, torch_on: false, seconds_left: 0, eternal_torch: false }; }
-
-    let rubies = Number(state.rubies);
-    let torchOn = !!state.torch_on;
-    let secondsLeft = state.seconds_left;
-
-    if (torchOn && secondsLeft > 0 && !state.eternal_torch) {
-      const upd = await client.query('update users set rubies = rubies + 1, last_ruby_at = now(), updated_at = now() where tg_id = $1 returning rubies, stars, torch_on', [tg_id]);
-      rubies = Number(upd.rows[0].rubies);
-      torchOn = !!upd.rows[0].torch_on;
-      secondsLeft = Math.max(0, secondsLeft - 1);
-    }
-
     await client.query('commit');
-    return { rubies, stars: 0, torch_on: torchOn, seconds_left: secondsLeft, eternal_torch: state.eternal_torch };
+    return { rubies: Number(state.rubies), stars: 0, torch_on: !!state.torch_on, seconds_left: state.seconds_left, eternal_torch: !!state.eternal_torch };
   } catch (e) {
     await client.query('rollback');
     throw e;
@@ -361,12 +359,12 @@ async function exchange(tg_id, direction, amount){
   const amt = Math.max(0, Math.floor(Number(amount||0)));
   if (!amt) return { error: 'invalid_params' };
   if (direction === 'rubies_to_stars') {
-    const costRubies = amt;
     const starsGain = Math.floor(amt / RUBIES_PER_STAR);
     if (starsGain <= 0) return { error: 'amount_too_small' };
     const spend = starsGain * RUBIES_PER_STAR;
     const res = await pool.query('update users set rubies = rubies - $2, stars = stars + $3, updated_at = now() where tg_id = $1 and rubies >= $2 returning rubies, stars', [tg_id, spend, starsGain]);
     if (!res.rows.length) return { error: 'not_enough_rubies' };
+    try { await pool.query('insert into history (tg_id, type, payload) values ($1,$2,$3)', [tg_id, 'exchange', { direction: 'rubies_to_stars', rubies: spend, stars: starsGain }]); } catch {}
     return res.rows[0];
   }
   if (direction === 'stars_to_rubies') {
@@ -374,6 +372,7 @@ async function exchange(tg_id, direction, amount){
     const rubiesGain = Math.floor(amt * RUBIES_PER_STAR);
     const res = await pool.query('update users set stars = stars - $2, rubies = rubies + $3, updated_at = now() where tg_id = $1 and stars >= $2 returning rubies, stars', [tg_id, costStars, rubiesGain]);
     if (!res.rows.length) return { error: 'not_enough_stars' };
+    try { await pool.query('insert into history (tg_id, type, payload) values ($1,$2,$3)', [tg_id, 'exchange', { direction: 'stars_to_rubies', rubies: rubiesGain, stars: costStars }]); } catch {}
     return res.rows[0];
   }
   return { error: 'invalid_direction' };
@@ -460,6 +459,12 @@ async function mineHit(tg_id, pickaxe) {
     if (nft) { await client.query('insert into user_nfts (tg_id, name) values ($1,$2)', [tg_id, nft]); }
     await client.query('commit');
     const r = upd.rows[0];
+
+    // log mining reward when completed
+    if (reward && reward.completed) {
+      try { await pool.query('insert into history (tg_id, type, payload) values ($1,$2,$3)', [tg_id, 'mine', { block: reward.block, stars: reward.starsEarned, nft: reward.nft || null }]); } catch {}
+    }
+
     return {
       pickaxe,
       stone_pickaxes: r.stone_pickaxes,

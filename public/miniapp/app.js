@@ -177,8 +177,9 @@
         updateBalancesUI();
       } catch {}
     }
-    if (state.secondsLeft > 0) state.secondsLeft -= 1; else state.secondsLeft = 0;
-    if (state.secondsLeft === 0 && state.torchOn) { state.torchOn = false; }
+    // secondsLeft comes authoritative from server; keep UI responsive fallback
+    if (typeof state.secondsLeft === 'number' && state.secondsLeft > 0 && !state.eternalTorch) state.secondsLeft -= 1;
+    if (state.secondsLeft === 0 && state.torchOn && !state.eternalTorch) { state.torchOn = false; }
     updateCountdownUI();
   }
 
@@ -338,6 +339,38 @@
     els.btnDaily.addEventListener('click', claimDaily);
     els.btnBuyDiamond.addEventListener('click', buyDiamond);
     els.blockView.addEventListener('click', hitBlock);
+
+    // History
+    const historyTabs = Array.from(document.querySelectorAll('[data-htab]'));
+    const historyList = document.getElementById('historyList');
+    async function loadHistory(type){
+      if (!state.user) return;
+      const rows = await fetchJSON(`/api/history?user_id=${state.user.tg_id}&type=${type}`);
+      historyList.innerHTML = rows.map(r => renderHistoryRow(r)).join('');
+    }
+    function renderHistoryRow(r){
+      const d = new Date(r.created_at);
+      if (r.type === 'mine') {
+        const p = r.payload || {}; const nft = p.nft ? `, NFT: ${p.nft}` : '';
+        return `<div class="leader-row"><div></div><div class="leader-name">Добыча: ${p.block || ''}${nft}</div><div class="leader-rubies">+⭐ ${p.stars || 0}</div></div>`;
+      }
+      if (r.type === 'topup') {
+        const p = r.payload || {}; return `<div class="leader-row"><div></div><div class="leader-name">Пополнение (${p.provider || ''})</div><div class="leader-rubies">+⭐ ${p.amount || 0}</div></div>`;
+      }
+      if (r.type === 'withdraw') {
+        const p = r.payload || {}; return `<div class="leader-row"><div></div><div class="leader-name">Вывод</div><div class="leader-rubies">−⭐ ${p.amount || 0}</div></div>`;
+      }
+      if (r.type === 'exchange') {
+        const p = r.payload || {}; const txt = p.direction==='rubies_to_stars' ? `−💎 ${p.rubies} → +⭐ ${p.stars}` : `−⭐ ${p.stars} → +💎 ${p.rubies}`;
+        return `<div class="leader-row"><div></div><div class="leader-name">Обмен</div><div class="leader-rubies">${txt}</div></div>`;
+      }
+      return `<div class="leader-row"><div></div><div class="leader-name">Событие</div><div class="leader-rubies"></div></div>`;
+    }
+    historyTabs.forEach(b => b.addEventListener('click', async ()=>{
+      play('click');
+      historyTabs.forEach(x=>x.classList.toggle('active', x===b));
+      await loadHistory(b.dataset.htab);
+    }));
 
     // Shop
     const rateRubToStar = document.getElementById('rateRubToStar');

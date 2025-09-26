@@ -62,7 +62,8 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, Bl
 
 /* Mine */
 .mine-wrapper { display: flex; flex-direction: column; gap: 16px; }
-.mine-tabs { display: grid; grid-template-columns: 1fr 1fr; background: rgba(255,255,255,0.06); border-radius: 10px; overflow: hidden; }
+.mine-tabs { display: grid; grid-template-columns: repeat(2, 1fr); background: rgba(255,255,255,0.06); border-radius: 10px; overflow: hidden; }
+.history-wrapper .mine-tabs { grid-template-columns: repeat(4, 1fr); margin-bottom: 10px; }
 .mine-tab-btn { background: transparent; border: none; color: #fff; padding: 10px 12px; font-weight: 700; }
 .mine-tab-btn.active { background: rgba(255,255,255,0.12); }
 
