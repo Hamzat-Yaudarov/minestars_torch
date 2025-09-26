@@ -219,7 +219,7 @@
   function renderBlock(block, left){
     els.blockView.className = 'block-view';
     if (!block) { els.blockLabel.textContent = 'Выберите кирку'; els.hitsLabel.textContent=''; return; }
-    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Зо��отой блок'], diamond:['block-diamond','Алмазный блок'] };
+    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Золотой блок'], diamond:['block-diamond','Алмазный блок'] };
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
@@ -243,7 +243,7 @@
   async function claimDaily(){
     if (!state.user) return; play('click');
     const r = await fetchJSON('/api/mine/daily-claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
-    if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); showToast(`Получено: +${r.granted} ��аменных кирок`); }
+    if (r.granted) { state.stone += r.granted; els.stoneCount.textContent = String(state.stone); showToast(`Получено: +${r.granted} каменных кирок`); }
   }
 
   async function buyDiamond(){
@@ -511,7 +511,7 @@
         const r = await fetchJSON('/api/shop/buy-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, item }) });
         if (r && r.ok) { if (typeof r.stars==='number') state.stars = Number(r.stars); if (typeof r.eternal_torch==='boolean') state.eternalTorch = !!r.eternal_torch; updateBalancesUI(); updateCountdownUI(); showToast('Покупка выполнена'); }
       } catch (e) {
-        const msg = (e && e.error) ? e.error : 'Ошиб��а покупки';
+        const msg = (e && e.error) ? e.error : 'Ошибка покупки';
         if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else showToast('Ошибка покупки');
       }
     }
