@@ -45,6 +45,12 @@ app.use('/miniapp', express.static(path.join(__dirname, '..', 'public', 'miniapp
 app.use('/muzik', express.static(path.join(__dirname, '..', 'muzik')));
 
 // API routes
+app.get('/api/config', (_req, res) => {
+  try {
+    res.json({ bot_username: BOT_USERNAME || '' });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
 app.get('/api/user', async (req, res) => {
   try {
     const tg_id = Number(req.query.user_id);

@@ -2,6 +2,8 @@
   const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
   if (tg) tg.expand();
 
+  let appConfig = { bot_username: '' };
+
   const state = {
     user: null,
     rubies: 0,
@@ -117,6 +119,7 @@
     const u = tg && tg.initDataUnsafe ? tg.initDataUnsafe.user : null;
     if (!u) return;
     const query = getQuery({ user_id: u.id, username: u.username||'', first_name: u.first_name||'', last_name: u.last_name||'', photo_url: u.photo_url||'' });
+    try { appConfig = await fetchJSON('/api/config'); if (appConfig && appConfig.bot_username) { window.BotUsername = appConfig.bot_username; } } catch {}
     const user = await fetchJSON(`/api/user?${query}`);
     state.user = user;
     state.rubies = Number(user.rubies || 0);
@@ -216,7 +219,7 @@
   function renderBlock(block, left){
     els.blockView.className = 'block-view';
     if (!block) { els.blockLabel.textContent = 'Выберите кирку'; els.hitsLabel.textContent=''; return; }
-    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный бл��к'], gold:['block-gold','Зо��отой блок'], diamond:['block-diamond','Алмазный блок'] };
+    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Зо��отой блок'], diamond:['block-diamond','Алмазный блок'] };
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
@@ -333,8 +336,19 @@
   }
 
   function openShare(){
-    const url = encodeURIComponent('https://t.me/'+(window.BotUsername||'')+'?start=story');
-    const text = encodeURIComponent('Играю в MineStars Torch! Присоединяйся!');
+    const username = (appConfig && appConfig.bot_username) || window.BotUsername || '';
+    const mediaUrl = 'https://i.imgur.com/bNSgBYl.png';
+    const caption = 'Играю в MineStars Torch! Присоединяйся!';
+    if (tg && typeof tg.shareToStory === 'function') {
+      const u = tg && tg.initDataUnsafe ? tg.initDataUnsafe.user : null;
+      const isPremium = !!(u && u.is_premium);
+      const params = { text: caption };
+      const appUrl = username ? `https://t.me/${username}/app?startapp=from_story` : '';
+      if (isPremium && appUrl) params.widget_link = { url: appUrl, name: 'Играть' };
+      try { tg.shareToStory(mediaUrl, params); return; } catch {}
+    }
+    const url = encodeURIComponent(username ? `https://t.me/${username}/app` : location.href);
+    const text = encodeURIComponent(caption);
     const link = `https://t.me/share/url?url=${url}&text=${text}`;
     if (tg && tg.openTelegramLink) tg.openTelegramLink(link); else window.open(link, '_blank');
   }
@@ -349,17 +363,7 @@
       els.dailyTasks.innerHTML = daily.map(d => {
         const btns = d.claimed ? `<button class=\"btn secondary\" disabled>Забрано</button>` : (d.code==='share_story' ? `<button class=\"btn secondary\" data-action=\"share\">Поделиться</button><button class=\"btn primary\" data-code=\"${d.code}\">Забрать</button>` : `<button class=\"btn primary\" data-code=\"${d.code}\">Забрать</button>`);
         const icon = d.code==='share_story' ? '📣' : '🎁';
-        return `
-          <div class=\"task-item\">
-            <div class=\"task-icon\">${icon}</div>
-            <div class=\"task-main\">
-              <div class=\"task-top\">
-                <div class=\"task-title\">${d.title}</div>
-                <div class=\"task-reward\">+💎 ${d.reward_rubies}</div>
-              </div>
-              <div class=\"task-actions\">${btns}</div>
-            </div>
-          </div>`;
+        return `<div class=\"task-row\"><div class=\"task-header\"><div class=\"task-icon\">${icon}</div><div class=\"task-title\">${d.title}</div><div class=\"task-reward\">+💎 ${d.reward_rubies}</div></div><div class=\"task-actions\">${btns}</div></div>`;
       }).join('');
 
       els.questTasks.innerHTML = quests.map(q => {
@@ -368,18 +372,8 @@
         const label = q.claimed ? 'Забрано' : 'Забрать';
         const btn = `<button class=\"btn ${q.claimed ? 'secondary':'primary'}\" data-code=\"${q.code}\" ${disabled}>${label}</button>`;
         const icon = q.code==='subscribe_endwarbg' ? '📢' : '👥';
-        return `
-          <div class=\"task-item\">
-            <div class=\"task-icon\">${icon}</div>
-            <div class=\"task-main\">
-              <div class=\"task-top\">
-                <div class=\"task-title\">${q.title}</div>
-                <div class=\"task-reward\">+💎 ${q.reward_rubies}</div>
-              </div>
-              ${progress ? `<div class=\"task-progress\">Прогресс: ${progress}</div>` : ''}
-              <div class=\"task-actions\">${btn}</div>
-            </div>
-          </div>`;
+        const name = q.title + (progress ? ` — ${progress}` : '');
+        return `<div class=\"task-row\"><div class=\"task-header\"><div class=\"task-icon\">${icon}</div><div class=\"task-title\">${name}</div><div class=\"task-reward\">+💎 ${q.reward_rubies}</div></div><div class=\"task-actions\">${btn}</div></div>`;
       }).join('');
 
       els.dailyTasks.onclick = (e)=>{
@@ -398,7 +392,7 @@
   async function loadInventory(){
     if (!state.user) return;
     const rows = await fetchJSON(`/api/inventory?user_id=${state.user.tg_id}`);
-    if (!rows.length) { els.inventoryList.innerHTML = `<div style=\"padding:16px;\">Пока пусто</div>`; return; }
+    if (!rows.length) { els.inventoryList.innerHTML = `<div class=\"empty-placeholder\">Пока пусто</div>`; return; }
     els.inventoryList.innerHTML = rows.map(r => {
       const img = nftToImg(r.name);
       return `<div class=\"inventory-card\">${img ? `<img src=\"${img}\" alt=\"${r.name}\" class=\"reward-nft-image\"/>` : ''}<div class=\"inventory-name\">${r.name}</div><div class=\"inventory-count\">× ${r.count}</div></div>`;
@@ -450,10 +444,6 @@
       if (r.type === 'exchange') {
         const p = r.payload || {}; const txt = p.direction==='rubies_to_stars' ? `−💎 ${p.rubies} → +⭐ ${p.stars}` : `−⭐ ${p.stars} → +💎 ${p.rubies}`;
         return `<div class="leader-row"><div></div><div class="leader-name">Обмен</div><div class="leader-rubies">${txt}</div></div>`;
-      }
-      if (r.type === 'task') {
-        const p = r.payload || {}; const name = p.code || 'Задание'; const rub = p.rubies ? `+💎 ${p.rubies}` : '';
-        return `<div class="leader-row"><div></div><div class="leader-name">${name}</div><div class="leader-rubies">${rub}</div></div>`;
       }
       return `<div class="leader-row"><div></div><div class="leader-name">Событие</div><div class="leader-rubies"></div></div>`;
     }
@@ -521,7 +511,7 @@
         const r = await fetchJSON('/api/shop/buy-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, item }) });
         if (r && r.ok) { if (typeof r.stars==='number') state.stars = Number(r.stars); if (typeof r.eternal_torch==='boolean') state.eternalTorch = !!r.eternal_torch; updateBalancesUI(); updateCountdownUI(); showToast('Покупка выполнена'); }
       } catch (e) {
-        const msg = (e && e.error) ? e.error : 'Ошибка покупки';
+        const msg = (e && e.error) ? e.error : 'Ошиб��а покупки';
         if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else showToast('Ошибка покупки');
       }
     }

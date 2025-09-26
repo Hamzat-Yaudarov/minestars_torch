@@ -55,6 +55,14 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, Bl
 .leader-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .leader-rubies { font-weight: 700; }
 
+/* Tasks list with multi-line layout */
+.task-row { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.task-header { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 10px; }
+.task-icon { width: 28px; text-align: center; }
+.task-title { font-weight: 700; white-space: normal; overflow: visible; text-overflow: initial; }
+.task-reward { font-weight: 800; }
+.task-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 .inventory-grid { max-height: 60vh; overflow: auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 12px 12px 16px; }
 .inventory-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .inventory-name { font-weight: 700; font-size: 12px; text-align: center; }
@@ -124,3 +132,5 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, Bl
 .toast { position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%); background: rgba(17,24,39,0.96); color: #fff; border: 1px solid rgba(255,255,255,0.08); padding: 10px 14px; border-radius: 10px; font-weight: 700; z-index: 50; opacity: 0; animation: toastIn 180ms ease forwards, toastOut 200ms ease 2200ms forwards; }
 @keyframes toastIn { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
 @keyframes toastOut { to { transform: translate(-50%, 12px); opacity: 0; } }
+
+.empty-placeholder { padding: 16px; text-align: center; opacity: 0.9; }
