@@ -34,10 +34,16 @@ async function ensureSchema() {
     alter table users add column if not exists diamond_hits_required integer;
     alter table users add column if not exists diamond_hits_done integer;
 
+    -- Ensure torch_on exists for legacy tables
+    alter table users add column if not exists torch_on boolean default true not null;
+
     -- Torch lifecycle columns
     alter table users add column if not exists torch_started_at timestamptz default now();
     alter table users add column if not exists extinguish_week_start date;
     alter table users add column if not exists extinguish_count_week integer default 0 not null;
+
+    -- Backfill safety
+    update users set torch_on = true where torch_on is null;
 
     create index if not exists users_rubies_idx on users (rubies desc);
     create index if not exists users_mine_stars_idx on users (stars_earned_mine desc);
