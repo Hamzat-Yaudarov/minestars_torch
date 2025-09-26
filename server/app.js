@@ -17,6 +17,8 @@ const {
   mineLeaders,
   getUserNfts,
   torchState,
+  exchange,
+  buyItem,
 } = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -152,6 +154,54 @@ app.post('/api/mine/hit', async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
 
+// Shop API
+app.post('/api/shop/exchange', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    const { direction, amount, rate } = req.body;
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const r = await exchange(tg_id, direction, amount, rate);
+    if (r && r.error) return res.status(400).json(r);
+    res.json(r);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+app.post('/api/shop/buy-item', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    const { item } = req.body;
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const r = await buyItem(tg_id, item);
+    if (r && r.error) return res.status(400).json(r);
+    res.json(r);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+// Create Stars invoice (Telegram Stars via Payments API)
+app.post('/api/shop/buy-stars-invoice', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    const amount = Math.max(0, Math.floor(Number(req.body.amount || 0)));
+    if (!tg_id || !amount) return res.status(400).json({ error: 'invalid_params' });
+    if (!bot) return res.status(500).json({ error: 'bot_unavailable' });
+
+    await bot.telegram.sendInvoice(tg_id, {
+      title: 'Пакет звезд',
+      description: `Покупка ${amount} ⭐ чер��з Telegram Stars`,
+      payload: `stars:${amount}`,
+      currency: 'XTR',
+      prices: [{ label: '⭐', amount }],
+      need_name: false,
+      need_phone_number: false,
+      need_email: false,
+      need_shipping_address: false,
+      is_flexible: false,
+    });
+
+    res.json({ ok: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
 app.get('/api/mine/leaderboard', async (_req, res) => {
   try {
     const rows = await mineLeaders(100);
@@ -174,7 +224,7 @@ if (BOT_TOKEN) {
         last_name: user.last_name,
         photo_url: user.photo_url,
       });
-      const text = 'Добро пожаловать �� MineStars Torch! Откройте игру ниже.';
+      const text = 'Добро пожаловать в MineStars Torch! Откройте игру ниже.';
       const url = `${BASE_URL}/miniapp/`;
       await ctx.reply(text, {
         reply_markup: { inline_keyboard: [[ { text: 'Открыть игру', web_app: { url } } ]] },
@@ -186,6 +236,27 @@ if (BOT_TOKEN) {
   });
 
   app.use(bot.webhookCallback('/bot'));
+
+  // Payments (Stars)
+  bot.on('pre_checkout_query', async (ctx) => {
+    try { await ctx.answerPreCheckoutQuery(true); } catch (e) { console.error('pre_checkout', e); }
+  });
+
+  bot.on('message', async (ctx) => {
+    try {
+      const msg = ctx.message;
+      if (msg && msg.successful_payment) {
+        const sp = msg.successful_payment;
+        const amount = Number(sp.total_amount || 0);
+        const userId = ctx.from && ctx.from.id;
+        if (userId && amount > 0) {
+          const { pool } = require('./db');
+          await pool.query('update users set stars = stars + $2, updated_at = now() where tg_id = $1', [userId, amount]);
+          await ctx.reply(`Зачислено: +${amount}⭐ Спасибо за покупку!`);
+        }
+      }
+    } catch (e) { console.error('payment message', e); }
+  });
 
   bot.telegram.setWebhook(`${BASE_URL}/bot`).then(() => {
     console.log('Webhook set to', `${BASE_URL}/bot`);

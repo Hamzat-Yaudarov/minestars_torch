@@ -39,8 +39,11 @@ async function ensureSchema() {
 
     -- Torch lifecycle columns
     alter table users add column if not exists torch_started_at timestamptz default now();
+    alter table users add column if not exists torch_extra_seconds integer default 0 not null;
+    alter table users add column if not exists eternal_torch boolean default false not null;
     alter table users add column if not exists extinguish_week_start date;
     alter table users add column if not exists extinguish_count_week integer default 0 not null;
+    alter table users add column if not exists referral_bonus_pct integer default 0 not null;
 
     -- Backfill safety
     update users set torch_on = true where torch_on is null;
@@ -104,8 +107,9 @@ async function initTorchIfMissing(tg_id) {
   return res.rows[0] || null;
 }
 
-function secondsLeftFrom(nowMs, startAt) {
-  const end = new Date(startAt.getTime() + 24 * 60 * 60 * 1000);
+function secondsLeftFrom(nowMs, startAt, extraSeconds) {
+  const base = 24 * 60 * 60 * 1000;
+  const end = new Date(startAt.getTime() + base + (Number(extraSeconds || 0) * 1000));
   const diff = Math.floor((end.getTime() - nowMs) / 1000);
   return Math.max(0, diff);
 }
@@ -115,12 +119,17 @@ async function ensureTorchState(tg_id, client) {
   let release = false;
   try {
     if (!client) { release = true; await c.query('begin'); }
-    const row = await c.query('select tg_id, rubies, torch_on, torch_started_at, extinguish_week_start, extinguish_count_week from users where tg_id = $1 for update', [tg_id]);
+    const row = await c.query('select tg_id, rubies, torch_on, torch_started_at, torch_extra_seconds, eternal_torch, extinguish_week_start, extinguish_count_week from users where tg_id = $1 for update', [tg_id]);
     if (!row.rows.length) { if (!client) { await c.query('rollback'); } return null; }
     const u = row.rows[0];
     const now = new Date();
     const startedAt = u.torch_started_at ? new Date(u.torch_started_at) : new Date();
-    const secondsLeft = secondsLeftFrom(now.getTime(), startedAt);
+    let secondsLeft = 0;
+    if (u.eternal_torch) {
+      secondsLeft = 10 * 365 * 24 * 60 * 60; // ~10 лет
+    } else {
+      secondsLeft = secondsLeftFrom(now.getTime(), startedAt, u.torch_extra_seconds);
+    }
 
     let torchOn = !!u.torch_on;
     let rubies = Number(u.rubies || 0);
@@ -135,7 +144,7 @@ async function ensureTorchState(tg_id, client) {
       torchOn = updFix.rows[0].torch_on;
     }
 
-    if (torchOn && secondsLeft === 0) {
+    if (!u.eternal_torch && torchOn && secondsLeft === 0) {
       const wk = await c.query("select (date_trunc('week', now()))::date as wk");
       const currentWeek = wk.rows[0].wk;
       const sameWeek = weekStart && (new Date(weekStart).toISOString().slice(0,10) === new Date(currentWeek).toISOString().slice(0,10));
@@ -304,9 +313,57 @@ async function purchaseDiamondPick(tg_id) {
 }
 
 async function creditReferral(tg_id, count = 1) {
-  const picks = 2 * count;
-  const res = await pool.query('update users set referral_count = referral_count + $2, stone_pickaxes = stone_pickaxes + $3, updated_at = now() where tg_id = $1 returning *', [tg_id, count, picks]);
-  return res.rows[0];
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    const row = await client.query('select referral_count, stone_pickaxes, referral_bonus_pct, torch_extra_seconds from users where tg_id = $1 for update', [tg_id]);
+    if (!row.rows.length) throw new Error('not_found');
+    const u = row.rows[0];
+    const picksAdd = 2 * count;
+    const baseSec = 12 * 60 * 60; // 12 часов
+    const bonusFactor = 1 + (Number(u.referral_bonus_pct || 0) / 100);
+    const extra = Math.floor(baseSec * bonusFactor) * count;
+    const upd = await client.query('update users set referral_count = referral_count + $2, stone_pickaxes = stone_pickaxes + $3, torch_extra_seconds = torch_extra_seconds + $4, updated_at = now() where tg_id = $1 returning *', [tg_id, count, picksAdd, extra]);
+    await client.query('commit');
+    return upd.rows[0];
+  } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
+}
+
+async function exchange(tg_id, direction, amount, rate){
+  const amt = Math.max(0, Math.floor(Number(amount||0)));
+  const r = Number(rate || 0);
+  if (!amt || !r) return { error: 'invalid_params' };
+  if (direction === 'rubies_to_stars') {
+    const costRubies = amt;
+    const starsGain = Math.floor(amt / r);
+    const res = await pool.query('update users set rubies = rubies - $2, stars = stars + $3, updated_at = now() where tg_id = $1 and rubies >= $2 returning rubies, stars', [tg_id, costRubies, starsGain]);
+    if (!res.rows.length) return { error: 'not_enough_rubies' };
+    return res.rows[0];
+  }
+  if (direction === 'stars_to_rubies') {
+    const costStars = amt;
+    const rubiesGain = Math.floor(amt * r);
+    const res = await pool.query('update users set stars = stars - $2, rubies = rubies + $3, updated_at = now() where tg_id = $1 and stars >= $2 returning rubies, stars', [tg_id, costStars, rubiesGain]);
+    if (!res.rows.length) return { error: 'not_enough_stars' };
+    return res.rows[0];
+  }
+  return { error: 'invalid_direction' };
+}
+
+async function buyItem(tg_id, item){
+  if (item === 'referral_bonus_20') {
+    const cost = 200;
+    const res = await pool.query('update users set stars = stars - $2, referral_bonus_pct = referral_bonus_pct + 20, updated_at = now() where tg_id = $1 and stars >= $2 returning stars, referral_bonus_pct', [tg_id, cost]);
+    if (!res.rows.length) return { error: 'not_enough_stars' };
+    return { ok: true, stars: res.rows[0].stars, referral_bonus_pct: res.rows[0].referral_bonus_pct };
+  }
+  if (item === 'eternal_torch') {
+    const cost = 750;
+    const res = await pool.query('update users set stars = stars - $2, eternal_torch = true, torch_on = true, updated_at = now() where tg_id = $1 and stars >= $2 returning stars, eternal_torch', [tg_id, cost]);
+    if (!res.rows.length) return { error: 'not_enough_stars' };
+    return { ok: true, stars: res.rows[0].stars, eternal_torch: res.rows[0].eternal_torch };
+  }
+  return { error: 'invalid_item' };
 }
 
 async function mineState(tg_id) {
@@ -421,4 +478,6 @@ module.exports = {
   mineLeaders,
   getUserNfts,
   torchState,
+  exchange,
+  buyItem,
 };

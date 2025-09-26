@@ -108,6 +108,17 @@ html, body { height: 100%; margin: 0; padding: 0; font-family: -apple-system, Bl
 
 .torch-countdown { font-size: 13px; opacity: 0.9; text-align: center; margin-top: 6px; }
 
+.shop-wrapper { display: flex; flex-direction: column; gap: 16px; }
+.shop-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; }
+.shop-title { font-weight: 800; margin-bottom: 10px; }
+.shop-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-bottom: 8px; }
+.shop-input { background: #111827; color: #fff; border: 1px solid #374151; border-radius: 10px; padding: 10px; }
+.shop-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.shop-items { display: flex; flex-direction: column; gap: 12px; }
+.shop-item { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+.shop-item-title { font-weight: 800; }
+.shop-item-sub { font-size: 12px; opacity: 0.9; }
+
 /* Toast */
 .toast { position: fixed; left: 50%; bottom: 88px; transform: translateX(-50%); background: rgba(17,24,39,0.96); color: #fff; border: 1px solid rgba(255,255,255,0.08); padding: 10px 14px; border-radius: 10px; font-weight: 700; z-index: 50; opacity: 0; animation: toastIn 180ms ease forwards, toastOut 200ms ease 2200ms forwards; }
 @keyframes toastIn { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }

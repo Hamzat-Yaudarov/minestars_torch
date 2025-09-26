@@ -209,7 +209,7 @@
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
-    els.hitsLabel.textContent = `Осталось ударов: ${left}`;
+    els.hitsLabel.textContent = `Осталось ударо��: ${left}`;
   }
 
   async function initMineView(){
@@ -333,6 +333,59 @@
     els.btnDaily.addEventListener('click', claimDaily);
     els.btnBuyDiamond.addEventListener('click', buyDiamond);
     els.blockView.addEventListener('click', hitBlock);
+
+    // Shop
+    const rateRubToStar = document.getElementById('rateRubToStar');
+    const amtRub = document.getElementById('amtRub');
+    const amtStar = document.getElementById('amtStar');
+    const btnExchangeR2S = document.getElementById('btnExchangeR2S');
+    const btnExchangeS2R = document.getElementById('btnExchangeS2R');
+    const packBtns = Array.from(document.querySelectorAll('.shop-pack'));
+    const btnItemRefBonus = document.getElementById('btnItemRefBonus');
+    const btnItemEternal = document.getElementById('btnItemEternal');
+
+    async function doExchange(direction){
+      if (!state.user) return;
+      const rate = Number(rateRubToStar.value || 0);
+      const amount = direction==='rubies_to_stars' ? Number(amtRub.value||0) : Number(amtStar.value||0);
+      if (!rate || !amount) { showToast('Укажит�� курс и сумму'); return; }
+      try {
+        const r = await fetchJSON('/api/shop/exchange', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, direction, amount, rate }) });
+        state.rubies = Number(r.rubies || state.rubies);
+        state.stars = Number(r.stars || state.stars);
+        updateBalancesUI();
+        showToast('Обмен выполнен');
+      } catch (e) {
+        const msg = (e && e.error) ? e.error : 'Ошибка обмена';
+        if (msg==='not_enough_rubies') showToast('Недостаточно 💎'); else if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else showToast('Ошибка обмена');
+      }
+    }
+
+    if (btnExchangeR2S) btnExchangeR2S.addEventListener('click', ()=>{ play('click'); doExchange('rubies_to_stars'); });
+    if (btnExchangeS2R) btnExchangeS2R.addEventListener('click', ()=>{ play('click'); doExchange('stars_to_rubies'); });
+
+    packBtns.forEach(b => b.addEventListener('click', async ()=>{
+      if (!state.user) return; play('click');
+      const amount = Number(b.dataset.stars);
+      try {
+        await fetchJSON('/api/shop/buy-stars-invoice', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, amount }) });
+        showToast('Откройте чат с ботом для оплаты');
+      } catch { showToast('Не удалось создать счёт'); }
+    }));
+
+    async function buyItem(item){
+      if (!state.user) return; play('click');
+      try {
+        const r = await fetchJSON('/api/shop/buy-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, item }) });
+        if (r && r.ok) { if (typeof r.stars==='number') state.stars = Number(r.stars); updateBalancesUI(); showToast('Покупка выполнена'); }
+      } catch (e) {
+        const msg = (e && e.error) ? e.error : 'Ошибка покупки';
+        if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else showToast('Ошибка покупки');
+      }
+    }
+
+    if (btnItemRefBonus) btnItemRefBonus.addEventListener('click', ()=> buyItem('referral_bonus_20'));
+    if (btnItemEternal) btnItemEternal.addEventListener('click', ()=> buyItem('eternal_torch'));
 
     document.body.addEventListener('click', unlockAudioOnce, { once: true });
   }
