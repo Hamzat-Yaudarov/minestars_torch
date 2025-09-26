@@ -39,6 +39,7 @@ async function ensureSchema() {
 
     -- Torch lifecycle columns
     alter table users add column if not exists torch_started_at timestamptz default now();
+    alter table users add column if not exists last_ruby_at timestamptz default now() not null;
     alter table users add column if not exists torch_extra_seconds integer default 0 not null;
     alter table users add column if not exists eternal_torch boolean default false not null;
     alter table users add column if not exists extinguish_week_start date;
@@ -119,16 +120,17 @@ async function ensureTorchState(tg_id, client) {
   let release = false;
   try {
     if (!client) { release = true; await c.query('begin'); }
-    const row = await c.query('select tg_id, rubies, torch_on, torch_started_at, torch_extra_seconds, eternal_torch, extinguish_week_start, extinguish_count_week from users where tg_id = $1 for update', [tg_id]);
+    const row = await c.query('select tg_id, rubies, torch_on, torch_started_at, last_ruby_at, torch_extra_seconds, eternal_torch, extinguish_week_start, extinguish_count_week from users where tg_id = $1 for update', [tg_id]);
     if (!row.rows.length) { if (!client) { await c.query('rollback'); } return null; }
     const u = row.rows[0];
     const now = new Date();
     const startedAt = u.torch_started_at ? new Date(u.torch_started_at) : new Date();
-    let secondsLeft = 0;
-    if (u.eternal_torch) {
-      secondsLeft = 10 * 365 * 24 * 60 * 60; // ~10 лет
-    } else {
-      secondsLeft = secondsLeftFrom(now.getTime(), startedAt, u.torch_extra_seconds);
+    const lastRubyAt = u.last_ruby_at ? new Date(u.last_ruby_at) : now;
+
+    // offline accrual up to expiry
+    let expiry = null;
+    if (!u.eternal_torch) {
+      expiry = new Date(startedAt.getTime() + (24 * 60 * 60 * 1000) + (Number(u.torch_extra_seconds || 0) * 1000));
     }
 
     let torchOn = !!u.torch_on;
@@ -136,15 +138,40 @@ async function ensureTorchState(tg_id, client) {
     let weekStart = u.extinguish_week_start ? new Date(u.extinguish_week_start) : null;
     let count = Number(u.extinguish_count_week || 0);
 
-    if (!torchOn && secondsLeft > 0) {
-      const updFix = await c.query(
-        `update users set torch_on = true, torch_started_at = coalesce(torch_started_at, now()), updated_at = now() where tg_id = $1 returning torch_on`,
-        [tg_id]
-      );
-      torchOn = updFix.rows[0].torch_on;
+    // Auto-on if time remains
+    if (!torchOn) {
+      const hasTime = u.eternal_torch || (expiry && now < expiry);
+      if (hasTime) {
+        const updFix = await c.query(
+          `update users set torch_on = true, torch_started_at = coalesce(torch_started_at, now()), updated_at = now() where tg_id = $1 returning torch_on`,
+          [tg_id]
+        );
+        torchOn = updFix.rows[0].torch_on;
+      }
     }
 
-    if (!u.eternal_torch && torchOn && secondsLeft === 0) {
+    if (torchOn) {
+      const end = u.eternal_torch ? now : (now < expiry ? now : expiry);
+      const elapsed = Math.max(0, Math.floor((end.getTime() - lastRubyAt.getTime()) / 1000));
+      if (elapsed > 0) {
+        const updAcc = await c.query(
+          'update users set rubies = rubies + $2, last_ruby_at = $3, updated_at = now() where tg_id = $1 returning rubies',
+          [tg_id, elapsed, end]
+        );
+        rubies = Number(updAcc.rows[0].rubies);
+      }
+    }
+
+    // recompute seconds left after accrual
+    let secondsLeft = 0;
+    if (u.eternal_torch) {
+      secondsLeft = 10 * 365 * 24 * 60 * 60;
+    } else {
+      secondsLeft = Math.max(0, Math.floor(((expiry || now).getTime() - now.getTime()) / 1000));
+    }
+
+    // Penalty if expired now
+    if (!u.eternal_torch && torchOn && now >= expiry) {
       const wk = await c.query("select (date_trunc('week', now()))::date as wk");
       const currentWeek = wk.rows[0].wk;
       const sameWeek = weekStart && (new Date(weekStart).toISOString().slice(0,10) === new Date(currentWeek).toISOString().slice(0,10));
@@ -164,7 +191,7 @@ async function ensureTorchState(tg_id, client) {
     }
 
     if (!client) { await c.query('commit'); }
-    return { torch_on: torchOn, seconds_left: secondsLeft, rubies, extinguish_count_week: count };
+    return { torch_on: torchOn, seconds_left: secondsLeft, rubies, extinguish_count_week: count, eternal_torch: !!u.eternal_torch };
   } catch (e) {
     if (!client) { await c.query('rollback'); }
     throw e;
@@ -178,21 +205,21 @@ async function tickRuby(tg_id) {
   try {
     await client.query('begin');
     const state = await ensureTorchState(tg_id, client);
-    if (!state) { await client.query('rollback'); return { rubies: 0, stars: 0, torch_on: false, seconds_left: 0 }; }
+    if (!state) { await client.query('rollback'); return { rubies: 0, stars: 0, torch_on: false, seconds_left: 0, eternal_torch: false }; }
 
     let rubies = Number(state.rubies);
     let torchOn = !!state.torch_on;
     let secondsLeft = state.seconds_left;
 
-    if (torchOn && secondsLeft > 0) {
-      const upd = await client.query('update users set rubies = rubies + 1, updated_at = now() where tg_id = $1 returning rubies, stars, torch_on', [tg_id]);
+    if (torchOn && secondsLeft > 0 && !state.eternal_torch) {
+      const upd = await client.query('update users set rubies = rubies + 1, last_ruby_at = now(), updated_at = now() where tg_id = $1 returning rubies, stars, torch_on', [tg_id]);
       rubies = Number(upd.rows[0].rubies);
       torchOn = !!upd.rows[0].torch_on;
+      secondsLeft = Math.max(0, secondsLeft - 1);
     }
 
     await client.query('commit');
-    const sleft = Math.max(0, secondsLeft - 1);
-    return { rubies, stars: 0, torch_on: torchOn, seconds_left: sleft };
+    return { rubies, stars: 0, torch_on: torchOn, seconds_left: secondsLeft, eternal_torch: state.eternal_torch };
   } catch (e) {
     await client.query('rollback');
     throw e;
@@ -329,20 +356,22 @@ async function creditReferral(tg_id, count = 1) {
   } catch (e) { await client.query('rollback'); throw e; } finally { client.release(); }
 }
 
-async function exchange(tg_id, direction, amount, rate){
+const RUBIES_PER_STAR = 2500;
+async function exchange(tg_id, direction, amount){
   const amt = Math.max(0, Math.floor(Number(amount||0)));
-  const r = Number(rate || 0);
-  if (!amt || !r) return { error: 'invalid_params' };
+  if (!amt) return { error: 'invalid_params' };
   if (direction === 'rubies_to_stars') {
     const costRubies = amt;
-    const starsGain = Math.floor(amt / r);
-    const res = await pool.query('update users set rubies = rubies - $2, stars = stars + $3, updated_at = now() where tg_id = $1 and rubies >= $2 returning rubies, stars', [tg_id, costRubies, starsGain]);
+    const starsGain = Math.floor(amt / RUBIES_PER_STAR);
+    if (starsGain <= 0) return { error: 'amount_too_small' };
+    const spend = starsGain * RUBIES_PER_STAR;
+    const res = await pool.query('update users set rubies = rubies - $2, stars = stars + $3, updated_at = now() where tg_id = $1 and rubies >= $2 returning rubies, stars', [tg_id, spend, starsGain]);
     if (!res.rows.length) return { error: 'not_enough_rubies' };
     return res.rows[0];
   }
   if (direction === 'stars_to_rubies') {
     const costStars = amt;
-    const rubiesGain = Math.floor(amt * r);
+    const rubiesGain = Math.floor(amt * RUBIES_PER_STAR);
     const res = await pool.query('update users set stars = stars - $2, rubies = rubies + $3, updated_at = now() where tg_id = $1 and stars >= $2 returning rubies, stars', [tg_id, costStars, rubiesGain]);
     if (!res.rows.length) return { error: 'not_enough_stars' };
     return res.rows[0];

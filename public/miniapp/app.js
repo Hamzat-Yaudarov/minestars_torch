@@ -141,6 +141,10 @@
 
   function updateCountdownUI(){
     if (!els.torchCountdown) return;
+    if (state.eternalTorch) {
+      els.torchCountdown.textContent = 'У вас вечный огонь';
+      return;
+    }
     if (state.secondsLeft > 0) {
       els.torchCountdown.textContent = `До угасания: ${formatTime(state.secondsLeft)}`;
     } else if (state.torchOn && state.secondsLeft === 0) {
@@ -156,6 +160,7 @@
       const s = await fetchJSON(`/api/torch/state?user_id=${state.user.tg_id}`);
       state.torchOn = !!s.torch_on;
       state.secondsLeft = Number(s.seconds_left || 0);
+      state.eternalTorch = !!s.eternal_torch;
       updateCountdownUI();
     } catch {}
   }
@@ -209,7 +214,7 @@
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
-    els.hitsLabel.textContent = `Осталось ударо��: ${left}`;
+    els.hitsLabel.textContent = `Осталось ударов: ${left}`;
   }
 
   async function initMineView(){
@@ -336,6 +341,7 @@
 
     // Shop
     const rateRubToStar = document.getElementById('rateRubToStar');
+    if (rateRubToStar) { rateRubToStar.value = '2500'; rateRubToStar.disabled = true; }
     const amtRub = document.getElementById('amtRub');
     const amtStar = document.getElementById('amtStar');
     const btnExchangeR2S = document.getElementById('btnExchangeR2S');
@@ -346,18 +352,17 @@
 
     async function doExchange(direction){
       if (!state.user) return;
-      const rate = Number(rateRubToStar.value || 0);
       const amount = direction==='rubies_to_stars' ? Number(amtRub.value||0) : Number(amtStar.value||0);
-      if (!rate || !amount) { showToast('Укажит�� курс и сумму'); return; }
+      if (!amount) { showToast('Укажите сумму'); return; }
       try {
-        const r = await fetchJSON('/api/shop/exchange', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, direction, amount, rate }) });
+        const r = await fetchJSON('/api/shop/exchange', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, direction, amount }) });
         state.rubies = Number(r.rubies || state.rubies);
         state.stars = Number(r.stars || state.stars);
         updateBalancesUI();
         showToast('Обмен выполнен');
       } catch (e) {
         const msg = (e && e.error) ? e.error : 'Ошибка обмена';
-        if (msg==='not_enough_rubies') showToast('Недостаточно 💎'); else if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else showToast('Ошибка обмена');
+        if (msg==='not_enough_rubies') showToast('Недостаточно 💎'); else if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else if (msg==='amount_too_small') showToast('Сумма слишком мала'); else showToast('Ошибка обмена');
       }
     }
 
@@ -368,8 +373,21 @@
       if (!state.user) return; play('click');
       const amount = Number(b.dataset.stars);
       try {
-        await fetchJSON('/api/shop/buy-stars-invoice', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, amount }) });
-        showToast('Откройте чат с ботом для оплаты');
+        const r = await fetchJSON('/api/shop/create-stars-invoice', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, amount }) });
+        if (tg && tg.openInvoice && r.invoice_url) {
+          tg.openInvoice(r.invoice_url, (status) => {
+            if (status === 'paid') {
+              showToast(`Оплачено: +${amount}⭐`);
+              // refresh balances after short delay
+              setTimeout(async ()=>{ try { const u = await fetchJSON(`/api/user?`+getQuery({ user_id: state.user.tg_id })); state.stars = Number(u.stars||state.stars); updateBalancesUI(); } catch {} }, 1200);
+            } else if (status === 'cancelled') {
+              showToast('Оплата отменена');
+            }
+          });
+        } else {
+          await fetchJSON('/api/shop/buy-stars-invoice', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, amount }) });
+          showToast('Счёт отправлен в чат');
+        }
       } catch { showToast('Не удалось создать счёт'); }
     }));
 
@@ -377,7 +395,7 @@
       if (!state.user) return; play('click');
       try {
         const r = await fetchJSON('/api/shop/buy-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, item }) });
-        if (r && r.ok) { if (typeof r.stars==='number') state.stars = Number(r.stars); updateBalancesUI(); showToast('Покупка выполнена'); }
+        if (r && r.ok) { if (typeof r.stars==='number') state.stars = Number(r.stars); if (typeof r.eternal_torch==='boolean') state.eternalTorch = !!r.eternal_torch; updateBalancesUI(); updateCountdownUI(); showToast('Покупка выполнена'); }
       } catch (e) {
         const msg = (e && e.error) ? e.error : 'Ошибка покупки';
         if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else showToast('Ошибка покупки');

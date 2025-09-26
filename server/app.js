@@ -177,7 +177,30 @@ app.post('/api/shop/buy-item', async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
 
-// Create Stars invoice (Telegram Stars via Payments API)
+// Create Stars invoice link for in-app overlay
+app.post('/api/shop/create-stars-invoice', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    const amount = Math.max(0, Math.floor(Number(req.body.amount || 0)));
+    if (!tg_id || !amount) return res.status(400).json({ error: 'invalid_params' });
+    if (!bot) return res.status(500).json({ error: 'bot_unavailable' });
+    const link = await bot.telegram.createInvoiceLink({
+      title: 'Пакет звезд',
+      description: `Покупка ${amount} ⭐ через Telegram Stars`,
+      payload: `stars:${amount}`,
+      currency: 'XTR',
+      prices: [{ label: '⭐', amount }],
+      need_name: false,
+      need_phone_number: false,
+      need_email: false,
+      need_shipping_address: false,
+      is_flexible: false,
+    });
+    res.json({ invoice_url: link });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+// Fallback: send invoice to chat
 app.post('/api/shop/buy-stars-invoice', async (req, res) => {
   try {
     const tg_id = Number(req.body.user_id);
@@ -187,7 +210,7 @@ app.post('/api/shop/buy-stars-invoice', async (req, res) => {
 
     await bot.telegram.sendInvoice(tg_id, {
       title: 'Пакет звезд',
-      description: `Покупка ${amount} ⭐ чер��з Telegram Stars`,
+      description: `Покупка ${amount} ⭐ через Telegram Stars`,
       payload: `stars:${amount}`,
       currency: 'XTR',
       prices: [{ label: '⭐', amount }],
