@@ -216,7 +216,7 @@
   function renderBlock(block, left){
     els.blockView.className = 'block-view';
     if (!block) { els.blockLabel.textContent = 'Выберите кирку'; els.hitsLabel.textContent=''; return; }
-    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный блок'], gold:['block-gold','Зо��отой блок'], diamond:['block-diamond','Алмазный блок'] };
+    const map = { wood:['block-wood','Деревянный блок'], stone:['block-stone','Каменный бл��к'], gold:['block-gold','Зо��отой блок'], diamond:['block-diamond','Алмазный блок'] };
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
@@ -347,9 +347,19 @@
       const quests = Array.isArray(t.quests) ? t.quests : [];
 
       els.dailyTasks.innerHTML = daily.map(d => {
-        const btn = d.claimed ? `<button class=\"btn secondary\" disabled>Забрано</button>` : (d.code==='share_story' ? `<div style=\"display:flex;gap:8px;\"><button class=\"btn secondary\" data-action=\"share\">Поделиться</button><button class=\"btn primary\" data-code=\"${d.code}\">Забрать</button></div>` : `<button class=\"btn primary\" data-code=\"${d.code}\">Забрать</button>`);
+        const btns = d.claimed ? `<button class=\"btn secondary\" disabled>Забрано</button>` : (d.code==='share_story' ? `<button class=\"btn secondary\" data-action=\"share\">Поделиться</button><button class=\"btn primary\" data-code=\"${d.code}\">Забрать</button>` : `<button class=\"btn primary\" data-code=\"${d.code}\">Забрать</button>`);
         const icon = d.code==='share_story' ? '📣' : '🎁';
-        return `<div class=\"leader-row\"><div style=\"text-align:center;\">${icon}</div><div class=\"leader-name\">${d.title}</div><div class=\"leader-rubies\">+💎 ${d.reward_rubies} ${btn}</div></div>`;
+        return `
+          <div class=\"task-item\">
+            <div class=\"task-icon\">${icon}</div>
+            <div class=\"task-main\">
+              <div class=\"task-top\">
+                <div class=\"task-title\">${d.title}</div>
+                <div class=\"task-reward\">+💎 ${d.reward_rubies}</div>
+              </div>
+              <div class=\"task-actions\">${btns}</div>
+            </div>
+          </div>`;
       }).join('');
 
       els.questTasks.innerHTML = quests.map(q => {
@@ -358,8 +368,18 @@
         const label = q.claimed ? 'Забрано' : 'Забрать';
         const btn = `<button class=\"btn ${q.claimed ? 'secondary':'primary'}\" data-code=\"${q.code}\" ${disabled}>${label}</button>`;
         const icon = q.code==='subscribe_endwarbg' ? '📢' : '👥';
-        const name = q.title + (progress ? ` — ${progress}` : '');
-        return `<div class=\"leader-row\"><div style=\"text-align:center;\">${icon}</div><div class=\"leader-name\">${name}</div><div class=\"leader-rubies\">+💎 ${q.reward_rubies} ${btn}</div></div>`;
+        return `
+          <div class=\"task-item\">
+            <div class=\"task-icon\">${icon}</div>
+            <div class=\"task-main\">
+              <div class=\"task-top\">
+                <div class=\"task-title\">${q.title}</div>
+                <div class=\"task-reward\">+💎 ${q.reward_rubies}</div>
+              </div>
+              ${progress ? `<div class=\"task-progress\">Прогресс: ${progress}</div>` : ''}
+              <div class=\"task-actions\">${btn}</div>
+            </div>
+          </div>`;
       }).join('');
 
       els.dailyTasks.onclick = (e)=>{
@@ -431,6 +451,10 @@
         const p = r.payload || {}; const txt = p.direction==='rubies_to_stars' ? `−💎 ${p.rubies} → +⭐ ${p.stars}` : `−⭐ ${p.stars} → +💎 ${p.rubies}`;
         return `<div class="leader-row"><div></div><div class="leader-name">Обмен</div><div class="leader-rubies">${txt}</div></div>`;
       }
+      if (r.type === 'task') {
+        const p = r.payload || {}; const name = p.code || 'Задание'; const rub = p.rubies ? `+💎 ${p.rubies}` : '';
+        return `<div class="leader-row"><div></div><div class="leader-name">${name}</div><div class="leader-rubies">${rub}</div></div>`;
+      }
       return `<div class="leader-row"><div></div><div class="leader-name">Событие</div><div class="leader-rubies"></div></div>`;
     }
     historyTabs.forEach(b => b.addEventListener('click', async ()=>{
@@ -497,7 +521,7 @@
         const r = await fetchJSON('/api/shop/buy-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, item }) });
         if (r && r.ok) { if (typeof r.stars==='number') state.stars = Number(r.stars); if (typeof r.eternal_torch==='boolean') state.eternalTorch = !!r.eternal_torch; updateBalancesUI(); updateCountdownUI(); showToast('Покупка выполнена'); }
       } catch (e) {
-        const msg = (e && e.error) ? e.error : 'Ошиб��а покупки';
+        const msg = (e && e.error) ? e.error : 'Ошибка покупки';
         if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else showToast('Ошибка покупки');
       }
     }
