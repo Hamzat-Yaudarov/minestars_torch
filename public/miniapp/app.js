@@ -141,7 +141,7 @@
 
   function updateCountdownUI(){
     if (!els.torchCountdown) return;
-    if (state.torchOn && state.secondsLeft > 0) {
+    if (state.secondsLeft > 0) {
       els.torchCountdown.textContent = `До угасания: ${formatTime(state.secondsLeft)}`;
     } else if (state.torchOn && state.secondsLeft === 0) {
       els.torchCountdown.textContent = 'До угасания: 00:00';
@@ -209,7 +209,7 @@
     const [klass, label] = map[block];
     els.blockView.classList.add(klass);
     els.blockLabel.textContent = label;
-    els.hitsLabel.textContent = `О��талось ударов: ${left}`;
+    els.hitsLabel.textContent = `Осталось ударов: ${left}`;
   }
 
   async function initMineView(){
@@ -234,7 +234,7 @@
 
   async function buyDiamond(){
     if (!state.user) return; play('click');
-    const prev = els.btnBuyDiamond.textContent; els.btnBuyDiamond.disabled = true; els.btnBuyDiamond.textContent = '��окупка...';
+    const prev = els.btnBuyDiamond.textContent; els.btnBuyDiamond.disabled = true; els.btnBuyDiamond.textContent = 'Покупка...';
     try {
       const r = await fetchJSON('/api/mine/purchase-dpick', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id }) });
       state.diamond = Number(r.diamond_pickaxes||state.diamond);

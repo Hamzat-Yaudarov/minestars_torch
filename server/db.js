@@ -121,6 +121,14 @@ async function ensureTorchState(tg_id, client) {
     let weekStart = u.extinguish_week_start ? new Date(u.extinguish_week_start) : null;
     let count = Number(u.extinguish_count_week || 0);
 
+    if (!torchOn && secondsLeft > 0) {
+      const updFix = await c.query(
+        `update users set torch_on = true, torch_started_at = coalesce(torch_started_at, now()), updated_at = now() where tg_id = $1 returning torch_on`,
+        [tg_id]
+      );
+      torchOn = updFix.rows[0].torch_on;
+    }
+
     if (torchOn && secondsLeft === 0) {
       const wk = await c.query("select (date_trunc('week', now()))::date as wk");
       const currentWeek = wk.rows[0].wk;
