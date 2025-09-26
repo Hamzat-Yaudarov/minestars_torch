@@ -43,7 +43,7 @@
     closeInventory: document.getElementById('closeInventory'),
 
     // mine
-    mineTabBtns: Array.from(document.querySelectorAll('.mine-tab-btn')),
+    mineTabBtns: Array.from(document.querySelectorAll('#tab-mine .mine-tab-btn')),
     minePanel: document.getElementById('mine-panel'),
     mineLeaders: document.getElementById('mine-leaders'),
     stoneCount: document.getElementById('stoneCount'),
@@ -59,6 +59,10 @@
 
     // home countdown
     torchCountdown: document.getElementById('torchCountdown'),
+
+    // tasks
+    dailyTasks: document.getElementById('dailyTasks'),
+    questTasks: document.getElementById('questTasks'),
   };
 
   // Sounds from /muzik
@@ -81,7 +85,8 @@
   function setActiveTab(name){
     els.tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === name));
     els.tabs.forEach(t => t.classList.toggle('active', t.id === `tab-${name}`));
-    if (name === 'mine') initMineView();
+    if (name === 'mine') { setMineSub(state.mineTab || 'mine'); initMineView(); }
+    if (name === 'tasks') { loadTasks(); }
   }
 
   function updateBalancesUI(){
@@ -308,6 +313,68 @@
     }).join('');
   }
 
+  async function claimTask(code){
+    if (!state.user) return;
+    try {
+      const u = tg && tg.initDataUnsafe ? tg.initDataUnsafe.user : null;
+      const is_premium = !!(u && u.is_premium);
+      const r = await fetchJSON('/api/tasks/claim', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, code, is_premium }) });
+      if (r && typeof r.rubies === 'number') { state.rubies = Number(r.rubies); updateBalancesUI(); }
+      showToast('Награда получена');
+      loadTasks();
+    } catch (e) {
+      const msg = (e && e.error) ? e.error : 'error';
+      if (msg === 'already_claimed') showToast('Уже забрано');
+      else if (msg === 'premium_required') showToast('Требуется Telegram Premium');
+      else if (msg === 'not_subscribed') showToast('Сначала подпишитесь на канал');
+      else if (msg === 'not_enough_refs') showToast('Недостаточно приглашённых друзей');
+      else showToast('Не удалось получить награду');
+    }
+  }
+
+  function openShare(){
+    const url = encodeURIComponent('https://t.me/'+(window.BotUsername||'')+'?start=story');
+    const text = encodeURIComponent('Играю в MineStars Torch! Присоединяйся!');
+    const link = `https://t.me/share/url?url=${url}&text=${text}`;
+    if (tg && tg.openTelegramLink) tg.openTelegramLink(link); else window.open(link, '_blank');
+  }
+
+  async function loadTasks(){
+    if (!state.user || !els.dailyTasks || !els.questTasks) return;
+    try {
+      const t = await fetchJSON(`/api/tasks?user_id=${state.user.tg_id}`);
+      const daily = Array.isArray(t.daily) ? t.daily : [];
+      const quests = Array.isArray(t.quests) ? t.quests : [];
+
+      els.dailyTasks.innerHTML = daily.map(d => {
+        const btn = d.claimed ? `<button class=\"btn secondary\" disabled>Забрано</button>` : (d.code==='share_story' ? `<div style=\"display:flex;gap:8px;\"><button class=\"btn secondary\" data-action=\"share\">Поделиться</button><button class=\"btn primary\" data-code=\"${d.code}\">Забрать</button></div>` : `<button class=\"btn primary\" data-code=\"${d.code}\">Забрать</button>`);
+        const icon = d.code==='share_story' ? '📣' : '🎁';
+        return `<div class=\"leader-row\"><div style=\"text-align:center;\">${icon}</div><div class=\"leader-name\">${d.title}</div><div class=\"leader-rubies\">+💎 ${d.reward_rubies} ${btn}</div></div>`;
+      }).join('');
+
+      els.questTasks.innerHTML = quests.map(q => {
+        const progress = typeof q.progress==='number' && typeof q.target==='number' ? `${Math.min(q.progress,q.target)}/${q.target}` : '';
+        const disabled = q.claimed ? 'disabled' : (q.target && q.progress < q.target ? 'disabled' : '');
+        const label = q.claimed ? 'Забрано' : 'Забрать';
+        const btn = `<button class=\"btn ${q.claimed ? 'secondary':'primary'}\" data-code=\"${q.code}\" ${disabled}>${label}</button>`;
+        const icon = q.code==='subscribe_endwarbg' ? '📢' : '👥';
+        const name = q.title + (progress ? ` — ${progress}` : '');
+        return `<div class=\"leader-row\"><div style=\"text-align:center;\">${icon}</div><div class=\"leader-name\">${name}</div><div class=\"leader-rubies\">+💎 ${q.reward_rubies} ${btn}</div></div>`;
+      }).join('');
+
+      els.dailyTasks.onclick = (e)=>{
+        const t = e.target;
+        if (!(t instanceof Element)) return;
+        if (t.matches('[data-code]')) { play('click'); claimTask(t.getAttribute('data-code')); }
+        if (t.matches('[data-action=\"share\"]')) { play('click'); openShare(); }
+      };
+      els.questTasks.onclick = (e)=>{
+        const t = e.target; if (!(t instanceof Element)) return;
+        if (t.matches('[data-code]') && !t.disabled) { play('click'); claimTask(t.getAttribute('data-code')); }
+      };
+    } catch { /* ignore */ }
+  }
+
   async function loadInventory(){
     if (!state.user) return;
     const rows = await fetchJSON(`/api/inventory?user_id=${state.user.tg_id}`);
@@ -430,7 +497,7 @@
         const r = await fetchJSON('/api/shop/buy-item', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ user_id: state.user.tg_id, item }) });
         if (r && r.ok) { if (typeof r.stars==='number') state.stars = Number(r.stars); if (typeof r.eternal_torch==='boolean') state.eternalTorch = !!r.eternal_torch; updateBalancesUI(); updateCountdownUI(); showToast('Покупка выполнена'); }
       } catch (e) {
-        const msg = (e && e.error) ? e.error : 'Ошибка покупки';
+        const msg = (e && e.error) ? e.error : 'Ошиб��а покупки';
         if (msg==='not_enough_stars') showToast('Недостаточно ⭐'); else showToast('Ошибка покупки');
       }
     }

@@ -19,6 +19,14 @@ const {
   torchState,
   exchange,
   buyItem,
+  // tasks
+  hasDailyClaim,
+  insertDailyClaim,
+  hasQuestClaim,
+  insertQuestClaim,
+  addRubies,
+  refCount,
+  getTasks,
 } = require('./db');
 
 const PORT = process.env.PORT || 3000;
@@ -229,6 +237,72 @@ app.get('/api/mine/leaderboard', async (_req, res) => {
   try {
     const rows = await mineLeaders(100);
     res.json(rows);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+// Tasks API
+app.get('/api/tasks', async (req, res) => {
+  try {
+    const tg_id = Number(req.query.user_id);
+    if (!tg_id) return res.status(400).json({ error: 'user_id required' });
+    const t = await getTasks(tg_id);
+    res.json(t);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
+});
+
+app.post('/api/tasks/claim', async (req, res) => {
+  try {
+    const tg_id = Number(req.body.user_id);
+    const code = String(req.body.code || '');
+    const isPremium = !!req.body.is_premium;
+    if (!tg_id || !code) return res.status(400).json({ error: 'invalid_params' });
+
+    const { pool } = require('./db');
+    async function logTask(payload){ try { await pool.query('insert into history (tg_id, type, payload) values ($1,$2,$3)', [tg_id, 'task', payload]); } catch {} }
+
+    if (code === 'daily_bonus') {
+      if (await hasDailyClaim(tg_id, 'daily_bonus')) return res.status(400).json({ error: 'already_claimed' });
+      await insertDailyClaim(tg_id, 'daily_bonus');
+      const r = await addRubies(tg_id, 3000);
+      await logTask({ code: 'daily_bonus', rubies: 3000 });
+      return res.json({ ok: true, rubies: r.rubies });
+    }
+
+    if (code === 'share_story') {
+      if (!isPremium) return res.status(400).json({ error: 'premium_required' });
+      if (await hasDailyClaim(tg_id, 'share_story')) return res.status(400).json({ error: 'already_claimed' });
+      await insertDailyClaim(tg_id, 'share_story');
+      const r = await addRubies(tg_id, 15000);
+      await logTask({ code: 'share_story', rubies: 15000 });
+      return res.json({ ok: true, rubies: r.rubies });
+    }
+
+    if (code === 'subscribe_endwarbg') {
+      if (await hasQuestClaim(tg_id, code)) return res.status(400).json({ error: 'already_claimed' });
+      if (!bot) return res.status(500).json({ error: 'bot_unavailable' });
+      try {
+        const m = await bot.telegram.getChatMember('@EndWarBG', tg_id);
+        const st = m && m.status;
+        if (!st || st === 'left' || st === 'kicked') return res.status(400).json({ error: 'not_subscribed' });
+      } catch (e) { return res.status(400).json({ error: 'not_subscribed' }); }
+      await insertQuestClaim(tg_id, code);
+      const r = await addRubies(tg_id, 8000);
+      await logTask({ code, rubies: 8000 });
+      return res.json({ ok: true, rubies: r.rubies });
+    }
+
+    const milestones = { ref_10: {need:10, reward:45000}, ref_50:{need:50, reward:100000}, ref_100:{need:100, reward:200000}, ref_1000:{need:1000, reward:1000000} };
+    if (milestones[code]) {
+      if (await hasQuestClaim(tg_id, code)) return res.status(400).json({ error: 'already_claimed' });
+      const ref = await refCount(tg_id);
+      if (ref < milestones[code].need) return res.status(400).json({ error: 'not_enough_refs', have: ref, need: milestones[code].need });
+      await insertQuestClaim(tg_id, code);
+      const r = await addRubies(tg_id, milestones[code].reward);
+      await logTask({ code, rubies: milestones[code].reward });
+      return res.json({ ok: true, rubies: r.rubies });
+    }
+
+    return res.status(400).json({ error: 'invalid_code' });
   } catch (e) { console.error(e); res.status(500).json({ error: 'internal_error' }); }
 });
 

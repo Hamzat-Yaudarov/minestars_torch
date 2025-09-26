@@ -63,12 +63,28 @@ async function ensureSchema() {
     create table if not exists history (
       id bigserial primary key,
       tg_id bigint not null,
-      type text not null, -- 'mine' | 'exchange' | 'topup' | 'withdraw'
+      type text not null, -- 'mine' | 'exchange' | 'topup' | 'withdraw' | 'task'
       payload jsonb not null default '{}',
       created_at timestamptz default now() not null
     );
     create index if not exists history_tg_idx on history (tg_id, created_at desc);
     create index if not exists history_type_idx on history (type);
+
+    -- Tasks claims
+    create table if not exists daily_claims (
+      tg_id bigint not null,
+      code text not null,
+      day date not null,
+      claimed_at timestamptz default now() not null,
+      primary key (tg_id, code, day)
+    );
+
+    create table if not exists quest_claims (
+      tg_id bigint not null,
+      code text not null,
+      claimed_at timestamptz default now() not null,
+      primary key (tg_id, code)
+    );
   `);
 }
 
@@ -496,6 +512,48 @@ async function torchState(tg_id) {
   return state;
 }
 
+async function todayStr(){ return new Date().toISOString().slice(0,10); }
+async function hasDailyClaim(tg_id, code){
+  const d = await pool.query('select 1 from daily_claims where tg_id=$1 and code=$2 and day=$3', [tg_id, code, await todayStr()]);
+  return d.rows.length > 0;
+}
+async function insertDailyClaim(tg_id, code){
+  await pool.query('insert into daily_claims (tg_id, code, day) values ($1,$2,$3) on conflict do nothing', [tg_id, code, await todayStr()]);
+}
+async function hasQuestClaim(tg_id, code){
+  const d = await pool.query('select 1 from quest_claims where tg_id=$1 and code=$2', [tg_id, code]);
+  return d.rows.length > 0;
+}
+async function insertQuestClaim(tg_id, code){
+  await pool.query('insert into quest_claims (tg_id, code) values ($1,$2) on conflict do nothing', [tg_id, code]);
+}
+async function addRubies(tg_id, amount){
+  const r = await pool.query('update users set rubies = rubies + $2, updated_at = now() where tg_id = $1 returning rubies', [tg_id, amount]);
+  return r.rows[0];
+}
+async function refCount(tg_id){
+  const r = await pool.query('select referral_count from users where tg_id=$1', [tg_id]);
+  return Number((r.rows[0] && r.rows[0].referral_count) || 0);
+}
+async function getTasks(tg_id){
+  const daily = [];
+  const dailyBonusClaimed = await hasDailyClaim(tg_id, 'daily_bonus');
+  daily.push({ code:'daily_bonus', title:'Забрать бонус', reward_rubies:3000, claimed: dailyBonusClaimed });
+  const shareClaimed = await hasDailyClaim(tg_id, 'share_story');
+  daily.push({ code:'share_story', title:'Поделиться историей', reward_rubies:15000, claimed: shareClaimed, requires_premium: true });
+
+  const quests = [];
+  const subClaimed = await hasQuestClaim(tg_id, 'subscribe_endwarbg');
+  quests.push({ code:'subscribe_endwarbg', title:'Подписаться на @EndWarBG', reward_rubies:8000, claimed: subClaimed });
+  const ref = await refCount(tg_id);
+  const milestones = [ {code:'ref_10', need:10, reward:45000}, {code:'ref_50', need:50, reward:100000}, {code:'ref_100', need:100, reward:200000}, {code:'ref_1000', need:1000, reward:1000000} ];
+  for (const m of milestones){
+    const claimed = await hasQuestClaim(tg_id, m.code);
+    quests.push({ code: m.code, title:`Пригласить ${m.need} друзей`, reward_rubies: m.reward, claimed, progress: ref, target: m.need });
+  }
+  return { daily, quests };
+}
+
 module.exports = {
   pool,
   ensureSchema,
@@ -514,4 +572,12 @@ module.exports = {
   torchState,
   exchange,
   buyItem,
+  // tasks
+  hasDailyClaim,
+  insertDailyClaim,
+  hasQuestClaim,
+  insertQuestClaim,
+  addRubies,
+  refCount,
+  getTasks,
 };
